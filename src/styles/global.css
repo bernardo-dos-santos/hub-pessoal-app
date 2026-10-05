@@ -1,0 +1,215 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Design system "Terracota" — ground claro e quente, cards flutuantes.
+   Hierarquia por peso/tamanho/cor (marrom #3A2C22 em opacidades decrescentes).
+   Tokens são a única fonte de cor — componentes consomem var(--hub-*), nunca
+   literais soltos.
+   ───────────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+
+  /* Ground e superfícies */
+  --hub-bg: #F7F1E6;
+  --hub-shell: #F7F1E6;
+  --hub-card: #FFFDF8;
+  --hub-header: rgba(247, 241, 230, 0.88);
+  --hub-surface: #FFFDF8;
+  --hub-surface-muted: #F2EADB;
+  --hub-surface-soft: #FBF6EC;
+  --hub-border: rgba(58, 44, 34, 0.09);
+  --hub-border-strong: rgba(58, 44, 34, 0.16);
+
+  /* Texto (marrom #3A2C22 em opacidades) */
+  --hub-text: #3A2C22;
+  --hub-text-strong: #2A1F17;
+  --hub-text-body: rgba(58, 44, 34, 0.76);
+  --hub-muted: rgba(58, 44, 34, 0.55);
+  --hub-subtle: rgba(58, 44, 34, 0.42);
+  --hub-label: rgba(58, 44, 34, 0.42);
+  --hub-disabled: rgba(58, 44, 34, 0.3);
+
+  /* Cores de sinal (uso semântico — nunca decorativo) */
+  --hub-primary: #C1633D;
+  --hub-primary-strong: #A6452E;
+  --hub-accent: #C1633D;
+  --hub-negative: #A6452E;
+  --hub-positive: #6B7A5E;
+  --hub-warning: #B48A3E;
+  --hub-mauve: #9E7686;
+  --hub-progress: #D99A72;
+  --hub-neutral: #9C6B4A;
+
+  /* Sombras — sempre na cor da tinta (rgba 58,44,34), nunca preto neutro */
+  --hub-shadow-chip: 0 2px 8px rgba(58, 44, 34, 0.07);
+  --hub-shadow-card: 0 4px 16px rgba(58, 44, 34, 0.06);
+  --hub-shadow-hero: 0 6px 20px rgba(58, 44, 34, 0.06);
+  --hub-shadow-menu: 0 10px 30px rgba(58, 44, 34, 0.14);
+  --hub-shadow-modal: 0 20px 50px rgba(58, 44, 34, 0.18);
+
+  /* Raios */
+  --hub-radius-card: 20px;
+  --hub-radius-pill: 999px;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background-color: var(--hub-bg);
+  color: var(--hub-text);
+  min-height: 100vh;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer base {
+  input,
+  select,
+  textarea {
+    @apply rounded-none border-0 bg-transparent px-0 pb-1.5 text-sm outline-none transition-colors;
+    border-bottom: 1px solid var(--hub-border-strong);
+    color: var(--hub-text);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    border-bottom-color: var(--hub-primary);
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--hub-disabled);
+  }
+
+  select {
+    @apply cursor-pointer appearance-none;
+  }
+
+  /* Dropdown nativo precisa de fundo sólido */
+  select option {
+    background-color: var(--hub-card);
+    color: var(--hub-text);
+  }
+
+  button:not([class*="bg-"]):not([class*="text-"]):not(.hub-tab) {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--hub-muted);
+    transition: opacity 0.15s;
+  }
+
+  button:not([class*="bg-"]):not([class*="text-"]):not(.hub-tab):hover {
+    opacity: 0.7;
+  }
+}
+
+/* ─── Navegação: pills (ativa = fundo terracota translúcido) ──────────────── */
+@layer components {
+  .hub-nav-link {
+    display: flex;
+    align-items: center;
+    height: 34px;
+    padding: 0 15px;
+    border-radius: var(--hub-radius-pill);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--hub-muted);
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    scroll-snap-align: center;
+  }
+
+  .hub-nav-link:hover {
+    color: var(--hub-text-body);
+  }
+
+  .hub-nav-link.active {
+    font-weight: 600;
+    color: var(--hub-primary-strong);
+    background: rgba(193, 99, 61, 0.13);
+    transform: scale(1.08);
+  }
+
+  .hub-tab {
+    font-size: 13px;
+    cursor: pointer;
+    padding: 6px 14px;
+    border-radius: var(--hub-radius-pill);
+    transition: color 0.15s, background 0.15s, transform 0.15s;
+    color: var(--hub-muted);
+    background: none;
+    border: none;
+    white-space: nowrap;
+    font-weight: 500;
+    flex-shrink: 0;
+    scroll-snap-align: center;
+  }
+
+  .hub-tab:hover {
+    color: var(--hub-text-body);
+  }
+
+  .hub-tab.active {
+    color: var(--hub-primary-strong);
+    background: rgba(193, 99, 61, 0.13);
+    font-weight: 600;
+    transform: scale(1.08);
+  }
+
+  /* Painel flutuante do Select customizado (substitui o dropdown nativo) */
+  .hub-select-option:hover:not(.active) {
+    background: var(--hub-surface-muted);
+  }
+
+  /* Faixa de navegação arrastável — some a scrollbar, mantém o scroll nativo */
+  .hub-scroll-strip {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    scroll-snap-type: x proximity;
+  }
+
+  .hub-scroll-strip::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Renomear inline (EditableText): o lápis é discreto e só aparece no hover…
+     mas hover não existe no APK, e a edição ficaria invisível no celular. Por
+     isso o padrão é "visível e apagado", e o esconde-e-revela entra só onde o
+     dispositivo tem hover de verdade. Mesma ideia do resto: uma superfície só,
+     sem variante mobile separada. */
+  .hub-edit-pencil {
+    opacity: 0.3;
+    transition: opacity 120ms ease;
+  }
+
+  @media (hover: hover) {
+    .hub-editable .hub-edit-pencil {
+      opacity: 0;
+    }
+
+    .hub-editable:hover .hub-edit-pencil {
+      opacity: 0.55;
+    }
+  }
+
+  /* Chegando pelo teclado o lápis precisa aparecer, com ou sem hover — e vem
+     depois para vencer as regras acima por especificidade, sem !important. */
+  .hub-editable .hub-edit-pencil:focus-visible {
+    opacity: 1;
+  }
+}

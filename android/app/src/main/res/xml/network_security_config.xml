@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Permite tráfego HTTP (não HTTPS) para o backend local via Tailscale.
+  Necessário porque o Android WebView é mais restritivo que o browser
+  mesmo com usesCleartextTraffic="true" no manifest.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

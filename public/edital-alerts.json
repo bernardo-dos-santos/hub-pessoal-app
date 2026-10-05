@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-05-31T18:33:01.480Z",
+  "alerts": [
+    {
+      "title": "Atualização detectada: CBMSC — Site oficial (notícias)",
+      "url": "https://www.cbm.sc.gov.br/noticias",
+      "foundKeyword": "oficial",
+      "detectedAt": "2026-05-31T18:31:39.111Z"
+    }
+  ]
+}

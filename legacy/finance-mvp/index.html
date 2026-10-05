@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#070b18" />
+    <title>Finance App</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navegacao principal">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">F</span>
+          <div>
+            <strong>Finance App</strong>
+            <span>Controle pessoal</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <a class="active" href="#dashboard">Dashboard</a>
+          <a href="#transactions">Transações</a>
+          <a href="#budgets">Orçamentos</a>
+          <a href="#assistant">IA</a>
+          <a href="#analytics">Análises</a>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div class="page-title">
+            <span class="eyebrow">Painel financeiro</span>
+            <h1>Finance App</h1>
+          </div>
+        </header>
+
+        <section class="control-dock" aria-label="Controles">
+          <article class="control-group">
+            <span>Filtros</span>
+            <div class="control-row">
+              <label class="period-control">
+                Período
+                <input id="monthFilter" type="month" />
+              </label>
+              <label class="view-control">
+                Visão
+                <select id="dashboardScope">
+                  <option value="pessoal">Pessoal</option>
+                  <option value="empresa">Empresa</option>
+                  <option value="consolidada">Consolidada</option>
+                </select>
+              </label>
+            </div>
+          </article>
+
+          <article class="control-group">
+            <span>Importação</span>
+            <div class="control-row">
+              <label class="select-label">
+                Perfil CSV
+                <select id="csvProfile">
+                  <option value="nubank_account">Nubank Conta</option>
+                  <option value="nubank_credit_card">Nubank Fatura Cartão</option>
+                  <option value="c6_business">C6 Empresa</option>
+                  <option value="generic">Generico</option>
+                </select>
+              </label>
+              <label class="file-button">
+                Importar CSV
+                <input id="csvInput" type="file" accept=".csv,text/csv" />
+              </label>
+            </div>
+          </article>
+
+          <article class="control-group control-group-actions">
+            <span>Ações</span>
+            <div class="control-row">
+              <button id="seedButton" type="button">Carregar exemplo</button>
+              <button id="reclassifyButton" type="button">Reclassificar categorias</button>
+              <button id="detectTransfersButton" type="button">Detectar transferências internas</button>
+              <button id="clearDataButton" class="danger-button" type="button">Limpar dados</button>
+            </div>
+          </article>
+        </section>
+        <p id="importStatus" class="status-line" role="status"></p>
+
+        <section id="dashboard" class="metrics-grid" aria-label="Metricas principais">
+          <article class="metric metric-result">
+            <span>Resultado real</span>
+            <strong id="balanceValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-positive">
+            <span>Receitas confirmadas</span>
+            <strong id="incomeValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-warning">
+            <span>Entradas a revisar</span>
+            <strong id="incomeReviewValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-negative">
+            <span>Despesas reais</span>
+            <strong id="expenseValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-alert">
+            <span>Despesas a revisar</span>
+            <strong id="expenseReviewValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-transfer">
+            <span>Transferências internas</span>
+            <strong id="topCategoryValue">-</strong>
+            <button id="transferFilterButton" class="metric-action" type="button">Ver transferencias</button>
+          </article>
+          <article class="metric metric-card">
+            <span>Compras no cartão</span>
+            <strong id="cardPurchaseValue">R$ 0,00</strong>
+          </article>
+          <article class="metric metric-payment">
+            <span>Pagamentos da fatura</span>
+            <strong id="cardPaymentValue">R$ 0,00</strong>
+          </article>
+        </section>
+
+        <section class="review-strip" aria-label="Revisão pendente">
+          <article class="review-panel review-panel-income">
+            <span>Entrada a revisar</span>
+            <strong id="incomeReviewFocusValue">R$ 0,00</strong>
+            <small id="incomeReviewFocusCount">0 lancamentos</small>
+          </article>
+          <article class="review-panel review-panel-expense">
+            <span>Despesa a revisar</span>
+            <strong id="expenseReviewFocusValue">R$ 0,00</strong>
+            <small id="expenseReviewFocusCount">0 lancamentos</small>
+          </article>
+          <div class="review-action">
+            <button id="reviewFilterButton" type="button">Ver A revisar</button>
+          </div>
+        </section>
+
+        <section class="content-grid">
+          <article class="panel spending-panel">
+            <div class="panel-header">
+              <h2>Gastos por categoria</h2>
+              <div class="panel-actions">
+                <span id="categoryCount">0 categorias</span>
+              </div>
+            </div>
+            <div id="categoryBars" class="bar-list"></div>
+          </article>
+
+          <article id="budgets" class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Orçamentos</h2>
+                <span>Orçamentos acompanham automaticamente as transações das categorias escolhidas no período selecionado.</span>
+              </div>
+              <button id="addBudgetButton" type="button">Adicionar</button>
+            </div>
+            <div class="budget-overview">
+              <strong id="budgetSummaryValue">0 ativos</strong>
+              <span id="budgetSummaryStatus">0 dentro · 0 atenção · 0 estourados</span>
+            </div>
+            <div id="budgetList" class="budget-list"></div>
+          </article>
+        </section>
+
+        <section id="transactions" class="panel">
+          <div class="panel-header table-header">
+            <div>
+              <h2>Transações</h2>
+              <span id="transactionSubtitle">Use perfis para Nubank Conta, Nubank Fatura Cartão ou CSV genérico</span>
+            </div>
+            <div class="panel-actions">
+              <button id="clearCategoryFilterButton" type="button" hidden>Limpar filtro</button>
+              <button id="addTransactionButton" type="button">Nova transacao</button>
+            </div>
+          </div>
+          <div id="categoryFilterSummary" class="filter-summary" hidden></div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Descrição</th>
+                  <th>Conta</th>
+                  <th>Escopo</th>
+                  <th>Método</th>
+                  <th>Tipo</th>
+                  <th>Categoria</th>
+                  <th>Valor</th>
+                  <th>Ações</th>
+                </tr>
+              </thead>
+              <tbody id="transactionTable"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="analytics" class="section-shell">
+          <div class="panel-header">
+            <div>
+              <h2>Análises</h2>
+              <span>Resumo local do período e da visão selecionados</span>
+            </div>
+          </div>
+          <div class="analysis-summary-grid" aria-label="Resumo das análises">
+            <article class="analysis-summary-card">
+              <span>Maior categoria</span>
+              <strong id="analysisTopCategoryValue">-</strong>
+              <small id="analysisTopCategoryText">Categoria com maior impacto no resultado real.</small>
+            </article>
+            <article class="analysis-summary-card">
+              <span>Maior dia</span>
+              <strong id="analysisTopDayValue">-</strong>
+              <small id="analysisTopDayText">Dia com maior concentração de gastos.</small>
+            </article>
+            <article class="analysis-summary-card">
+              <span>Transações</span>
+              <strong id="analysisTransactionCount">0</strong>
+              <small>Lançamentos no período filtrado.</small>
+            </article>
+            <article class="analysis-summary-card">
+              <span>Despesa a revisar</span>
+              <strong id="analysisExpenseReviewValue">R$ 0,00</strong>
+              <small>Já conta como saída, mas precisa de categoria.</small>
+            </article>
+            <article class="analysis-summary-card">
+              <span>Entrada a revisar</span>
+              <strong id="analysisIncomeReviewValue">R$ 0,00</strong>
+              <small>Ainda não conta como receita real.</small>
+            </article>
+            <article class="analysis-summary-card">
+              <span>Maior gasto</span>
+              <strong id="analysisTopExpenseValue">-</strong>
+              <small id="analysisTopExpenseText">Maior despesa real individual.</small>
+            </article>
+          </div>
+          <div class="analytics-grid">
+            <article class="analysis-card analysis-card-wide">
+              <div class="analysis-card-header">
+                <div>
+                  <h3>Gastos por categoria</h3>
+                  <p>Categorias com maior impacto no seu resultado real.</p>
+                </div>
+                <button id="analyticsCategoryToggleButton" type="button">Ver todas</button>
+              </div>
+              <div id="analyticsCategoryBars" class="bar-list"></div>
+            </article>
+            <article class="analysis-card">
+              <div class="analysis-card-header">
+                <div>
+                  <h3>Gastos por dia no mês</h3>
+                  <p>Os picos indicam dias em que seus gastos foram mais concentrados.</p>
+                </div>
+              </div>
+              <div id="dailySpendBars" class="daily-bars"></div>
+            </article>
+            <article class="analysis-card">
+              <div class="analysis-card-header">
+                <div>
+                  <h3>Maiores gastos</h3>
+                  <p>Top 10 despesas reais, incluindo compras no cartão e despesas a revisar.</p>
+                </div>
+              </div>
+              <div id="topExpensesList" class="rank-list"></div>
+            </article>
+            <article class="analysis-card review-card analysis-card-tight">
+              <div class="analysis-card-header">
+                <div>
+                  <h3>Pendências de revisão</h3>
+                  <p>Entradas pendentes e despesas que ainda precisam de categoria.</p>
+                </div>
+              </div>
+              <div class="review-breakdown">
+                <div>
+                  <span>Entradas</span>
+                  <strong id="reviewIncomeCount">0</strong>
+                  <small id="reviewIncomeAmount">R$ 0,00</small>
+                </div>
+                <div>
+                  <span>Despesas</span>
+                  <strong id="reviewExpenseCount">0</strong>
+                  <small id="reviewExpenseAmount">R$ 0,00</small>
+                </div>
+              </div>
+              <p class="analysis-note">Entradas a revisar não contam como receita real até você confirmar. Despesas a revisar já contam como saída, mas precisam de categoria.</p>
+              <button id="analyticsReviewButton" type="button">Ver pendências</button>
+            </article>
+            <article class="analysis-card analysis-card-wide">
+              <div class="analysis-card-header">
+                <div>
+                  <h3>Leitura automática do período</h3>
+                  <p>Frases geradas localmente a partir das regras atuais.</p>
+                </div>
+              </div>
+              <div id="analyticsReadingList" class="reading-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section id="assistant" class="panel assistant-panel">
+          <div class="panel-header">
+            <h2>Assistente IA</h2>
+            <span>Primeira versao local</span>
+          </div>
+          <div id="insightList" class="insight-list"></div>
+          <form id="assistantForm" class="assistant-form">
+            <input
+              id="assistantInput"
+              type="text"
+              placeholder="Pergunte: quanto gastei com alimentacao?"
+              autocomplete="off"
+            />
+            <button type="submit">Perguntar</button>
+          </form>
+          <p id="assistantAnswer" class="assistant-answer"></p>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="transactionDialog">
+      <form method="dialog" id="transactionForm" class="dialog-form">
+        <h2 id="transactionDialogTitle">Nova transacao</h2>
+        <input name="id" type="hidden" />
+        <label>
+          Data
+          <input name="date" type="date" required />
+        </label>
+        <label>
+          Descricao
+          <input name="description" type="text" required />
+        </label>
+        <label>
+          Conta
+          <select name="account" required></select>
+        </label>
+        <label>
+          Escopo
+          <select name="scope" required>
+            <option value="pessoal">Pessoal</option>
+            <option value="empresa">Empresa</option>
+          </select>
+        </label>
+        <label>
+          Método
+          <select name="method" required>
+            <option value="pix">Pix</option>
+            <option value="debito">Débito</option>
+            <option value="credito">Crédito</option>
+            <option value="boleto">Boleto</option>
+            <option value="fatura">Fatura</option>
+            <option value="outro">Outro</option>
+          </select>
+        </label>
+        <label>
+          Tipo
+          <select name="kind" required>
+            <option value="income">Receita</option>
+            <option value="expense">Despesa</option>
+            <option value="transfer">Transferencia</option>
+          <option value="card_purchase">Compra cartão</option>
+            <option value="card_payment">Pagamento fatura</option>
+            <option value="card_payment_received">Pagamento recebido fatura</option>
+            <option value="refund">Reembolso</option>
+            <option value="review">A revisar</option>
+          </select>
+        </label>
+        <label>
+          Categoria
+          <select name="category" required></select>
+        </label>
+        <label id="customCategoryLabel" hidden>
+          Categoria personalizada
+          <input name="customCategory" type="text" />
+        </label>
+        <label>
+          Valor
+          <input name="amount" type="number" step="0.01" required />
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" type="submit">Cancelar</button>
+          <button id="saveTransactionButton" value="default" type="submit">Salvar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="budgetDialog">
+      <form method="dialog" id="budgetForm" class="dialog-form">
+        <h2 id="budgetDialogTitle">Novo orçamento</h2>
+        <input name="id" type="hidden" />
+        <label>
+          Nome do orçamento
+          <input name="name" type="text" required />
+        </label>
+        <label>
+          Categoria principal
+          <select name="category" required></select>
+        </label>
+        <label>
+          Categorias incluídas (opcional, separadas por vírgula)
+          <input name="categories" type="text" placeholder="Mercado, Alimentação fora" />
+        </label>
+        <label>
+          Escopo
+          <select name="scope" required>
+            <option value="pessoal">Pessoal</option>
+            <option value="empresa">Empresa</option>
+            <option value="both">Ambos/Consolidado</option>
+          </select>
+        </label>
+        <label>
+          Limite mensal
+          <input name="limit" type="number" step="0.01" required />
+        </label>
+        <div class="dialog-actions">
+          <button value="cancel" type="submit">Cancelar</button>
+          <button id="saveBudgetButton" value="default" type="submit">Salvar orçamento</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

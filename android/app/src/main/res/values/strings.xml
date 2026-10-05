@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Hub Pessoal</string>
+    <string name="title_activity_main">Hub Pessoal</string>
+    <string name="package_name">com.bernardo.hubpessoal</string>
+    <string name="custom_url_scheme">com.bernardo.hubpessoal</string>
+</resources>

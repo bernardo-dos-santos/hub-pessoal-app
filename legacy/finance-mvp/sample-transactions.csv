@@ -1,0 +1,11 @@
+data;descricao;categoria;valor;conta
+02/05/2026;Salario;Renda;7800,00;Nubank Conta
+03/05/2026;Aluguel;Moradia;-2200,00;Nubank Conta
+04/05/2026;Supermercado;Mercado;-386,42;Nubank Cartao
+05/05/2026;Uber;Transporte;-42,90;Nubank Cartao
+08/05/2026;Internet;Moradia;-129,90;Nubank Conta
+11/05/2026;Restaurante;Alimentação fora;-118,50;Nubank Cartao
+12/05/2026;Farmacia;Saúde;-74,30;Dinheiro
+15/05/2026;Freelance;Renda;950,00;Nubank Conta
+16/05/2026;Cinema;Lazer;-86,00;Nubank Cartao
+17/05/2026;Academia;Academia;-139,90;Nubank Cartao

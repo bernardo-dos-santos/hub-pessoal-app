@@ -1,0 +1,40 @@
+{
+  "_instrucoes": [
+    "Monitor de edital CBMSC — roda diariamente às 08:00 via Task Scheduler.",
+    "Dispara alerta apenas quando o site mudar E uma das keywords for encontrada.",
+    "Keywords propositalmente específicas para evitar falsos positivos."
+  ],
+  "targets": [
+    {
+      "name": "CBMSC — Site oficial (notícias)",
+      "url": "https://www.cbm.sc.gov.br/noticias",
+      "keywords": [
+        "concurso público",
+        "edital de abertura",
+        "processo seletivo",
+        "inscrições abertas",
+        "soldado combatente",
+        "oficial combatente"
+      ]
+    },
+    {
+      "name": "CBMSC — Página principal",
+      "url": "https://www.cbm.sc.gov.br",
+      "keywords": [
+        "concurso público",
+        "edital de abertura",
+        "processo seletivo",
+        "inscrições abertas"
+      ]
+    },
+    {
+      "name": "Governo SC — Portal de Concursos",
+      "url": "https://www.sc.gov.br/concursos-publicos",
+      "keywords": [
+        "bombeiro",
+        "CBMSC",
+        "Corpo de Bombeiros Militar"
+      ]
+    }
+  ]
+}

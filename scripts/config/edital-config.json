@@ -1,0 +1,78 @@
+{
+  "_instrucoes": [
+    "Monitor de edital — CBMSC e ABIN — roda diariamente às 08:00 via Task Scheduler.",
+    "Dispara alerta apenas quando o site mudar E uma das keywords for encontrada.",
+    "Keywords propositalmente específicas para evitar falsos positivos.",
+    "Campo 'group': 'cbmsc' grava em public/edital-alerts.json; 'abin' grava em public/abin-alerts.json."
+  ],
+  "targets": [
+    {
+      "group": "cbmsc",
+      "name": "CBMSC — Site oficial (notícias)",
+      "url": "https://www.cbm.sc.gov.br/noticias",
+      "keywords": [
+        "concurso público",
+        "edital de abertura",
+        "processo seletivo",
+        "inscrições abertas",
+        "soldado combatente",
+        "oficial combatente"
+      ]
+    },
+    {
+      "group": "cbmsc",
+      "name": "CBMSC — Página principal",
+      "url": "https://www.cbm.sc.gov.br",
+      "keywords": [
+        "concurso público",
+        "edital de abertura",
+        "processo seletivo",
+        "inscrições abertas"
+      ]
+    },
+    {
+      "group": "cbmsc",
+      "name": "Governo SC — Portal de Concursos",
+      "url": "https://www.sc.gov.br/concursos-publicos",
+      "keywords": [
+        "bombeiro",
+        "CBMSC",
+        "Corpo de Bombeiros Militar"
+      ]
+    },
+    {
+      "group": "abin",
+      "name": "ABIN — Notícias oficiais",
+      "url": "https://www.gov.br/abin/pt-br/assuntos/noticias",
+      "keywords": [
+        "concurso público",
+        "edital",
+        "processo seletivo",
+        "oficial de inteligência",
+        "inscrições"
+      ]
+    },
+    {
+      "group": "abin",
+      "name": "MGI — Concursos públicos",
+      "url": "https://www.gov.br/gestao/pt-br/acesso-a-informacao/concursos-publicos",
+      "keywords": [
+        "ABIN",
+        "Agência Brasileira de Inteligência",
+        "oficial de inteligência",
+        "inteligência"
+      ]
+    },
+    {
+      "group": "abin",
+      "name": "Gran Cursos — Concursos ABIN",
+      "url": "https://www.grancursosonline.com.br/concursos/abin",
+      "keywords": [
+        "edital",
+        "inscrições abertas",
+        "vagas",
+        "oficial de inteligência"
+      ]
+    }
+  ]
+}

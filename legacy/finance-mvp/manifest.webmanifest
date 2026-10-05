@@ -1,0 +1,9 @@
+{
+  "name": "Finance App",
+  "short_name": "Finance",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f6f4ee",
+  "theme_color": "#10231f",
+  "icons": []
+}

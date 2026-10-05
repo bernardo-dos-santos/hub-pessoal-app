@@ -1,0 +1,17 @@
+export const ABIN_SUBJECTS: readonly string[] = [
+  'Língua Portuguesa',
+  'Raciocínio Lógico',
+  'Direito Constitucional',
+  'Direito Administrativo',
+  'Atividade de Inteligência',
+  'Legislação ABIN (SISBIN)',
+  'Inglês',
+  'Espanhol',
+  'História do Brasil e Mundial',
+  'Geografia do Brasil e Contemporânea',
+  'Política Internacional e Segurança',
+  'Relações Internacionais',
+  'Ciências Humanas',
+  'Atualidades e Geopolítica',
+  'Redação Discursiva',
+];

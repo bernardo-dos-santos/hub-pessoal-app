@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="true"
+        android:networkSecurityConfig="@xml/network_security_config">
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- "Compartilhar → Hub Pessoal" a partir de qualquer app (Fase 13).
+                 Só text/plain: é o que o navegador manda ao compartilhar um link
+                 e o que qualquer app manda ao compartilhar texto selecionado.
+                 Imagem (print) exigiria o chat aceitar anexo, que ainda não
+                 existe — declarar image/* aqui faria o Hub aparecer na lista de
+                 compartilhamento e engolir o print sem fazer nada com ele. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Modo voz do Jarvis. Sem RECORD_AUDIO declarado aqui o Android nem chega a
+         exibir o diálogo de permissão: o getUserMedia do WebView falha direto, sem
+         perguntar nada. MODIFY_AUDIO_SETTINGS é o que permite ao WebView gerenciar
+         o foco de áudio ao alternar entre gravar e tocar a resposta. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- O aparelho pode não ter microfone e ainda assim instalar o app; o resto
+         do Hub funciona sem voz. -->
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+
+    <!-- Foto para o Jarvis (Fase 13). O @capacitor/camera declara sozinho só as
+         <queries> de que precisa para achar câmera e galeria no Android 11+; as
+         permissões são por conta do app.
+
+         READ_MEDIA_IMAGES é o que vale do Android 13 em diante; abaixo disso o
+         acesso à galeria ainda passa por READ_EXTERNAL_STORAGE, daí o
+         maxSdkVersion nele — sem esse limite, o Android novo reclama de uma
+         permissão ampla que não é mais usada. WRITE_EXTERNAL_STORAGE não entra:
+         só seria necessária para salvar a foto na galeria, e aqui ela vai
+         direto para o chat. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- Localização (Fase 13). As DUAS permissões são declaradas de propósito:
+         do Android 12 em diante, quem declara só COARSE recebe posição
+         aproximada de 1–2 km, e um lugar salvo tem raio de 150 m — nunca casaria
+         (ou casaria errado). Declarando FINE, a escolha entre precisa e
+         aproximada fica com quem instala, no próprio diálogo do sistema.
+         COARSE acompanha FINE por exigência do Android.
+
+         Sem permissão de segundo plano: o Hub só lê a posição com o app aberto
+         (ver src/core/jarvis/location.ts), o que basta para saber onde ele está
+         quando vai usar o Jarvis e evita a revisão extra da Play Store. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+</manifest>
