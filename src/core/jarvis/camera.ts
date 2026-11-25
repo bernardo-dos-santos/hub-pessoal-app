@@ -41,7 +41,7 @@ export async function takePhotoForChat(): Promise<ChatImage | null> {
       correctOrientation: true,
       resultType: CameraResultType.Base64,
       source: CameraSource.Prompt,
-      promptLabelHeader: 'Foto para o JARVIS',
+      promptLabelHeader: 'Foto para a Íris',
       promptLabelPhoto: 'Escolher da galeria',
       promptLabelPicture: 'Tirar foto',
       promptLabelCancel: 'Cancelar',

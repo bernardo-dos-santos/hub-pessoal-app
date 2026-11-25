@@ -1,7 +1,9 @@
 import { storageAdapter } from '../storage/storage.adapter';
 import { getApiCacheEntries, isApiCachePrimed } from '../storage/apiStorageAdapter';
+import { listLocalEntries } from '../storage/local-storage.adapter';
+import { localDayKey } from '../../shared/dates/localDay';
 
-const HUB_KEY_PREFIXES = ['finance.', 'fitness.', 'college.', 'concurso.', 'rpg.', 'study.', 'goals.', 'ai.', 'planner.'];
+const HUB_KEY_PREFIXES = ['finance.', 'fitness.', 'college.', 'rpg.', 'study.', 'goals.', 'ai.', 'planner.'];
 const BACKUP_VERSION = 1;
 
 export type HubBackup = {
@@ -34,16 +36,9 @@ function getAllHubEntries(): Record<string, unknown> {
     return data;
   }
 
-  // Modo standalone: lê o localStorage diretamente
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (!key || !isHubKey(key)) continue;
-    try {
-      const raw = localStorage.getItem(key);
-      data[key] = raw ? JSON.parse(raw) : null;
-    } catch {
-      data[key] = localStorage.getItem(key);
-    }
+  // Modo standalone: o localStorage do usuário atual
+  for (const [key, value] of Object.entries(listLocalEntries())) {
+    if (isHubKey(key)) data[key] = value;
   }
   return data;
 }
@@ -53,7 +48,7 @@ export const backupService = {
     return {
       version: BACKUP_VERSION,
       exportedAt: new Date().toISOString(),
-      appName: 'Hub Pessoal',
+      appName: 'Olimpo',
       data: getAllHubEntries(),
     };
   },
@@ -72,7 +67,7 @@ export const backupService = {
     const json = JSON.stringify(backup, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const date = new Date().toISOString().split('T')[0];
+    const date = localDayKey();
     const a = document.createElement('a');
     a.href = url;
     a.download = `hub-pessoal-backup-${date}.json`;

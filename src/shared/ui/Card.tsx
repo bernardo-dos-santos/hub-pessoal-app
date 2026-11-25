@@ -10,9 +10,9 @@ type CardProps = {
 };
 
 /**
- * Unidade estrutural básica do design system Terracota. Todo agrupamento de
- * conteúdo é um card claro flutuante — substitui os hairlines "sem container"
- * do DS dark. Cor/sombra/raio vêm sempre dos tokens.
+ * Unidade estrutural básica do design system Editorial: uma superfície
+ * delimitada por uma linha fina (a "sombra" do token é um contorno de 1px),
+ * com cantos leves. Cor/contorno/raio vêm sempre dos tokens.
  */
 export function Card({ children, hero = false, className = '', style, onClick }: CardProps) {
   return (

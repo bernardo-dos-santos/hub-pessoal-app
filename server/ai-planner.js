@@ -6,6 +6,8 @@
 
 import { kvStore } from './db.js';
 import { callAi } from './aiProvider.js';
+import { targetWeekOf } from '../src/shared/planner/planWeek.js';
+import { localDayKey } from '../src/shared/dates/localDay.js';
 
 const WEEK_DAY_LABEL = {
   sunday: 'Domingo', monday: 'Segunda', tuesday: 'Terça', wednesday: 'Quarta',
@@ -35,25 +37,6 @@ function routineLines() {
   }).join('\n');
 }
 
-function tafLines() {
-  const workouts = getKey('fitness.workouts') ?? [];
-  const requirements = [
-    { id: 'running', testName: 'Corrida 2400m', workoutType: 'running', minimumValue: 2400, unit: 'm', higherIsBetter: true },
-    { id: 'sit_up',  testName: 'Abdominal',     workoutType: 'sit_up',  minimumValue: 38,   unit: 'reps', higherIsBetter: true },
-    { id: 'push_up', testName: 'Flexão',         workoutType: 'push_up', minimumValue: 28,   unit: 'reps', higherIsBetter: true },
-    { id: 'pull_up', testName: 'Barra',          workoutType: 'pull_up', minimumValue: 7,    unit: 'reps', higherIsBetter: true },
-  ];
-  return requirements.map((req) => {
-    const typeWorkouts = workouts.filter((w) => w.type === req.workoutType);
-    const bestValue = typeWorkouts.length > 0
-      ? Math.max(...typeWorkouts.map((w) => req.workoutType === 'running' ? (w.distanceMeters ?? 0) : (w.reps ?? 0)).filter((v) => v > 0))
-      : null;
-    const pct = bestValue !== null ? Math.round((bestValue / req.minimumValue) * 100) : 0;
-    const gap = bestValue !== null && bestValue < req.minimumValue ? ` (falta ${req.minimumValue - bestValue} ${req.unit})` : '';
-    return `  - ${req.testName}: ${bestValue ?? 'sem dado'} ${req.unit} / mínimo ${req.minimumValue} ${req.unit} — ${pct}%${gap}`;
-  }).join('\n');
-}
-
 function fitnessLines() {
   const workouts = (getKey('fitness.workouts') ?? []).slice(0, 5);
   if (!workouts.length) return '  - Nenhum treino registrado';
@@ -77,19 +60,8 @@ function examLines() {
   }).join('\n');
 }
 
-function abinCheckInLines() {
-  const checkIns = getKey('concurso.abin.checkIns') ?? [];
-  if (!checkIns.length) return '  (nenhum check-in registrado)';
-  const last4 = checkIns.slice(0, 4);
-  return last4.map((ci) =>
-    `  - Semana ${ci.weekStart}: ${ci.hoursStudied}h estudadas` +
-    (ci.questionsResolved > 0 ? `, ${ci.questionsResolved} questões (${ci.accuracyPct}%)` : '') +
-    (ci.trainingDone ? ', treinou' : ', sem treino')
-  ).join('\n');
-}
-
 function buildPrompt() {
-  const today = new Date().toISOString().split('T')[0];
+  const today = localDayKey();
   return `Você é um assistente de planejamento de vida. Crie uma agenda semanal COMPLETA — não só estudo, mas tudo: treinos, revisões, descanso, tarefas administrativas.
 
 Data de hoje: ${today}
@@ -97,23 +69,17 @@ Data de hoje: ${today}
 --- BLOCOS DE HORÁRIO DISPONÍVEIS ---
 ${routineLines()}
 
---- FÍSICO: Status TAF (Bombeiros SC) ---
-${tafLines()}
-
 --- FÍSICO: Histórico de treinos ---
 ${fitnessLines()}
 
 --- ACADÊMICO: Próximas avaliações ---
 ${examLines()}
 
---- CONCURSO ABIN: Check-ins semanais recentes ---
-${abinCheckInLines()}
-
 REGRAS CRÍTICAS:
 1. Use os horários disponíveis na rotina. startTime deve caber dentro de um bloco.
 2. type deve ser: "study", "review", "train", "rest", "admin", "other".
 3. ADAPTAÇÃO AUTOMÁTICA: se houver prova em 1-3 dias, priorize revisão nessa matéria.
-4. Inclua sessões de treino físico baseadas nos gaps do TAF.
+4. Inclua sessões de treino físico baseadas no histórico de treinos.
 5. Nomes dos dias em inglês. startTime no formato "HH:MM".
 
 Retorne APENAS array JSON sem markdown:
@@ -133,22 +99,6 @@ function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-function getMondayOf(date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split('T')[0];
-}
-
-function getNextMondayFrom(date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split('T')[0];
-}
-
 export async function generateAndSaveWeeklyPlan() {
   const prompt = `${buildPrompt()}\n\nResponda APENAS com JSON válido.`;
   const raw = await callAi(prompt, { temperature: 0.3 });
@@ -156,11 +106,9 @@ export async function generateAndSaveWeeklyPlan() {
 
   if (!Array.isArray(parsed)) throw new Error('A IA não retornou um array JSON válido.');
 
-  const today = new Date();
-  const isAfterSunday16h = today.getDay() === 0 && today.getHours() >= 16;
-  const weekOf = isAfterSunday16h
-    ? getNextMondayFrom(today)
-    : getMondayOf(today);
+  // Same rule as the app's "no plan this week" alert — they used to differ
+  // (here only after 16h on Sunday), so a Sunday-morning plan looked missing.
+  const weekOf = targetWeekOf();
 
   const sessions = parsed
     .filter((s) => s && typeof s.topic === 'string' && typeof s.durationMinutes === 'number')

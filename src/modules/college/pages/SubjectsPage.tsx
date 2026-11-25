@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from 'react';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, useConfirm } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { EmptyCollegeState } from '../components/EmptyCollegeState';
 import { SubjectCard } from '../components/SubjectCard';
@@ -44,6 +44,7 @@ function createDraft(subject?: Subject): SubjectDraft {
 }
 
 export function SubjectsPage() {
+  const confirmAction = useConfirm();
   const [subjects, setSubjects] = useState(() => subjectService.listSubjects());
   const [draft, setDraft] = useState(() => createDraft());
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
@@ -98,7 +99,7 @@ export function SubjectsPage() {
     setError('');
   }
 
-  function deleteSubject(subject: Subject) {
+  async function deleteSubject(subject: Subject) {
     // A exclusão leva junto tudo que pertence à disciplina e não tem desfazer —
     // por isso a confirmação lista item a item o que vai sumir.
     const preview = subjectService.previewRemoval(subject.id);
@@ -118,7 +119,7 @@ export function SubjectsPage() {
       ? 'Ela não tem nada vinculado.'
       : `Isto também apaga, de forma permanente:\n\n• ${items.join('\n• ')}`;
 
-    if (!confirm(`Excluir "${subject.name}"?\n\n${detail}`)) return;
+    if (!(await confirmAction(`Excluir "${subject.name}"?\n\n${detail}`))) return;
 
     const removed = subjectService.removeSubject(subject.id);
     refreshSubjects();
@@ -256,7 +257,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}

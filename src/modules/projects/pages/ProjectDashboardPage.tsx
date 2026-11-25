@@ -35,7 +35,7 @@ function WeeklyBars({ points, emptyLabel }: { points: WeeklyPoint[]; emptyLabel:
     <div className="flex items-end gap-1" style={{ height: '80px' }}>
       {points.map((point) => (
         <div key={point.weekStart} className="flex flex-1 flex-col items-center justify-end gap-1" style={{ height: '100%' }}>
-          <span className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)', fontSize: '9px' }}>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)', fontSize: '11px' }}>
             {point.count > 0 ? point.count : ''}
           </span>
           <div
@@ -155,7 +155,7 @@ export function ProjectDashboardPage() {
         <div className="flex items-baseline justify-between gap-4">
           <div>
             <Eyebrow>Tempo até fechar</Eyebrow>
-            <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+            <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
               {medianDays === null ? '—' : `${medianDays}d`}
             </p>
           </div>

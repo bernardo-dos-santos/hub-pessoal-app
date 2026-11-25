@@ -4,16 +4,10 @@ import { pdfTextService } from './pdfTextService';
 import type { Material } from '../../college/types/material';
 
 /**
- * De onde sai o texto que alimenta a IA.
- *
- * `college` monta o texto a partir dos materiais do SIGAA da disciplina; `tag`
- * é o caminho de concurso (e de qualquer tema livre), onde o próprio usuário
- * cola o conteúdo. Antes essa escolha era um nível de aba — na verdade sempre
- * foi um campo do formulário.
+ * De onde sai o texto que alimenta a IA: os materiais do SIGAA da disciplina
+ * escolhida, mais o texto complementar que o usuário colar.
  */
-export type StudySource =
-  | { kind: 'college'; subjectId: string; subjectTag: string; materialIds: string[]; extraText: string }
-  | { kind: 'tag'; subjectTag: string; text: string };
+export type StudySource = { subjectId: string; subjectTag: string; materialIds: string[]; extraText: string };
 
 export function isPdfMaterial(material: Material): boolean {
   return material.type === 'pdf' || material.type === 'pdf_reference';
@@ -28,7 +22,6 @@ export const studySourceService = {
   /** Há conteúdo suficiente para valer uma chamada de IA? */
   hasContent(source: StudySource | null): boolean {
     if (!source) return false;
-    if (source.kind === 'tag') return source.subjectTag.trim() !== '' && source.text.trim() !== '';
     return source.subjectId !== '' && (source.materialIds.length > 0 || source.extraText.trim() !== '');
   },
 
@@ -37,8 +30,6 @@ export const studySourceService = {
    * bastante para a tela precisar dizer em qual material está.
    */
   async buildText(source: StudySource, onProgress?: (status: string) => void): Promise<string> {
-    if (source.kind === 'tag') return source.text.trim();
-
     // Modelo local engasga com contexto grande; os de nuvem aguentam ordens de
     // magnitude a mais. O corte segue o provedor do primeiro slot da cadeia, que
     // é o que provavelmente vai atender.

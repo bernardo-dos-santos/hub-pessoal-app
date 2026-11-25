@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, EditableText, Eyebrow, ModuleHeader, Select } from '../../../shared/ui';
+import { Card, EditableText, Eyebrow, ModuleHeader, Select, useConfirm } from '../../../shared/ui';
 import { getProjectTabs, projectEyebrow } from '../components/projectTabs';
 import { frontService } from '../services/frontService';
 import { projectDecisionService } from '../services/projectDecisionService';
@@ -14,11 +14,12 @@ function formatDate(iso: string): string {
 }
 
 const LABEL_STYLE = {
-  fontSize: '10px', fontWeight: 500, textTransform: 'uppercase' as const,
+  fontSize: '11px', fontWeight: 500, textTransform: 'uppercase' as const,
   letterSpacing: '0.1em', color: 'var(--hub-subtle)',
 };
 
 export function ProjectDecisionsPage() {
+  const confirmAction = useConfirm();
   const { projectId = '' } = useParams();
   const [, bump] = useState(0);
   const refresh = () => bump((n) => n + 1);
@@ -64,8 +65,8 @@ export function ProjectDecisionsPage() {
     refresh();
   }
 
-  function remove(decision: ProjectDecision) {
-    if (!confirm(`Apagar o registro "${decision.title}"?\n\nO motivo por trás dela some junto.`)) return;
+  async function remove(decision: ProjectDecision) {
+    if (!(await confirmAction(`Apagar o registro "${decision.title}"?\n\nO motivo por trás dela some junto.`, { confirmLabel: 'Apagar' }))) return;
     projectDecisionService.remove(decision.id);
     refresh();
   }

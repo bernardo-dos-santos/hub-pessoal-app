@@ -4,7 +4,8 @@ import { App } from './App';
 import { bootstrapStore } from '../core/storage/bootstrapStore';
 import { rebuildDailyContext } from '../core/context/contextBuilder';
 import { setupServiceWorkerUpdates } from '../core/pwa/swUpdate';
-import '@fontsource/inter/300.css';
+import { initTheme, loadThemePreference } from '../core/theme/theme';
+import { IrisMark } from '../core/jarvis/IrisMark';
 import '@fontsource/inter/400.css';
 import '@fontsource/inter/500.css';
 import '@fontsource/inter/600.css';
@@ -13,11 +14,13 @@ import '../styles/global.css';
 const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement);
 
 setupServiceWorkerUpdates();
+initTheme();
 
-// Loading mínimo enquanto o store decide a fonte (backend ou localStorage).
+// Abertura enquanto o store decide a fonte (backend ou localStorage): os arcos da
+// Íris se desenham e, se o carregamento demorar, passam a "pensar".
 root.render(
-  <div className="grid min-h-screen place-items-center" style={{ background: '#F7F1E6' }}>
-    <p className="text-sm" style={{ color: 'rgba(58,44,34,0.42)' }}>Carregando…</p>
+  <div className="grid min-h-screen place-items-center" style={{ background: 'var(--hub-bg)' }}>
+    <IrisMark size={120} mode="intro" settle="thinking" label="Carregando o Olimpo" />
   </div>,
 );
 
@@ -26,6 +29,7 @@ root.render(
 bootstrapStore()
   .catch(() => undefined)
   .then(() => {
+    loadThemePreference();
     try {
       rebuildDailyContext();
     } catch (e) {

@@ -1,5 +1,5 @@
 /**
- * Espelho em TS dos tokens de cor do design system Terracota (definidos em
+ * Espelho em TS dos tokens de cor do design system Editorial (definidos em
  * global.css). Use estas constantes quando a cor for decidida em JS (ex.: regra
  * positivo/negativo de um valor). Em JSX estático, prefira `var(--hub-*)`.
  */
@@ -23,7 +23,18 @@ export const hub = {
   neutral: 'var(--hub-neutral)',
   border: 'var(--hub-border)',
   borderStrong: 'var(--hub-border-strong)',
+  onAccent: 'var(--hub-on-accent)',
+  track: 'var(--hub-track)',
 } as const;
+
+/**
+ * Versão translúcida de um token (`tint(hub.accent, 12)` = 12% da cor).
+ * Fundo de item selecionado, faixa do dia atual, categoria no calendário:
+ * em vez de um token por opacidade, a mesma cor do sistema em outra dose.
+ */
+export function tint(color: string, percent: number): string {
+  return `color-mix(in srgb, ${color} ${percent}%, transparent)`;
+}
 
 export type Signal = 'positive' | 'negative' | 'warning' | 'accent' | 'mauve' | 'neutral';
 

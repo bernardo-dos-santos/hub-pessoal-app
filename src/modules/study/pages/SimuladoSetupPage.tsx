@@ -4,8 +4,6 @@ import { ModuleHeader, Select } from '../../../shared/ui';
 import { questionService } from '../services/questionService';
 import { simuladoService } from '../services/simuladoService';
 import { materialService } from '../../college/services/materialService';
-import { CBMSC_SUBJECTS } from '../data/cbmscSubjects';
-import { ABIN_SUBJECTS } from '../data/abinSubjects';
 import type { QuestionDifficulty } from '../types/question';
 import { getStudyTabs } from '../components/studyTabs';
 import { errorNotebookService } from '../services/errorNotebookService';
@@ -47,7 +45,6 @@ export function SimuladoSetupPage() {
   const [difficulty, setDifficulty] = useState<QuestionDifficulty | 'mixed'>('mixed');
   const [durationMin, setDurationMin] = useState(0);
   const [title, setTitle] = useState('');
-  const [filterMsg, setFilterMsg] = useState('');
   const [selectedMaterials, setSelectedMaterials] = useState<string[]>([]);
 
   const available = useMemo(
@@ -122,7 +119,7 @@ export function SimuladoSetupPage() {
 
           {/* Título opcional */}
           <div>
-            <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+            <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
               Título <span style={{ color: 'var(--hub-disabled)' }}>(opcional)</span>
             </label>
             <input
@@ -136,46 +133,14 @@ export function SimuladoSetupPage() {
           {/* Matérias */}
           <div>
             <div className="mb-3 flex items-center justify-between">
-              <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+              <label className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                 Matérias <span style={{ color: 'var(--hub-disabled)' }}>(vazio = todas)</span>
               </label>
               <div className="flex items-center gap-3">
-                <button
-                  onClick={() => {
-                    const filtered = [...CBMSC_SUBJECTS].filter((s) => allSubjects.includes(s));
-                    if (filtered.length === 0) {
-                      setFilterMsg('Nenhuma questão CBMSC no banco ainda.');
-                      setTimeout(() => setFilterMsg(''), 3000);
-                    } else {
-                      setSelectedSubjects(filtered);
-                      setFilterMsg('');
-                    }
-                  }}
-                  className="text-[10px] font-bold transition-opacity hover:opacity-70"
-                  style={{ color: 'var(--hub-positive)', background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  🔥 CBMSC
-                </button>
-                <button
-                  onClick={() => {
-                    const filtered = [...ABIN_SUBJECTS].filter((s) => allSubjects.includes(s));
-                    if (filtered.length === 0) {
-                      setFilterMsg('Nenhuma questão ABIN no banco ainda.');
-                      setTimeout(() => setFilterMsg(''), 3000);
-                    } else {
-                      setSelectedSubjects(filtered);
-                      setFilterMsg('');
-                    }
-                  }}
-                  className="text-[10px] font-bold transition-opacity hover:opacity-70"
-                  style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer' }}
-                >
-                  🕵️ ABIN
-                </button>
                 {selectedSubjects.length > 0 && (
                   <button
-                    onClick={() => { setSelectedSubjects([]); setFilterMsg(''); }}
-                    className="text-[10px] transition-opacity hover:opacity-70"
+                    onClick={() => setSelectedSubjects([])}
+                    className="text-[11px] transition-opacity hover:opacity-70"
                     style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
                   >
                     Limpar
@@ -183,11 +148,6 @@ export function SimuladoSetupPage() {
                 )}
               </div>
             </div>
-            {filterMsg && (
-              <p className="mb-2 text-[11px] animate-pulse" style={{ color: 'var(--hub-warning)' }}>
-                {filterMsg} Gere questões primeiro em "Gerar".
-              </p>
-            )}
             <div className="flex flex-wrap gap-2">
               {allSubjects.map((s) => (
                 <button
@@ -211,7 +171,7 @@ export function SimuladoSetupPage() {
           {/* Opções */}
           <div className="grid grid-cols-3 gap-5">
             <div>
-              <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Questões</label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Questões</label>
               <Select value={String(count)} onChange={(value) => setCount(Number(value))} className={selectClass}>
                 {[5, 10, 15, 20, 30, 40, 50].map((n) => (
                   <Select.Option key={n} value={String(n)} disabled={n > available}>
@@ -221,7 +181,7 @@ export function SimuladoSetupPage() {
               </Select>
             </div>
             <div>
-              <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Dificuldade</label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Dificuldade</label>
               <Select value={difficulty} onChange={(value) => setDifficulty(value as QuestionDifficulty | 'mixed')} className={selectClass}>
                 <Select.Option value="mixed">Variada</Select.Option>
                 <Select.Option value="easy">Fácil</Select.Option>
@@ -230,7 +190,7 @@ export function SimuladoSetupPage() {
               </Select>
             </div>
             <div>
-              <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Duração</label>
+              <label className="mb-2 block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Duração</label>
               <Select value={String(durationMin)} onChange={(value) => setDurationMin(Number(value))} className={selectClass}>
                 {DURATIONS.map((d) => (
                   <Select.Option key={d.value} value={String(d.value)}>{d.label}</Select.Option>
@@ -243,13 +203,13 @@ export function SimuladoSetupPage() {
           {linkedMaterials.length > 0 && (
             <div>
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                <label className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                   Priorizar por material <span style={{ color: 'var(--hub-disabled)' }}>(vazio = todos)</span>
                 </label>
                 {selectedMaterials.length > 0 && (
                   <button
                     onClick={() => setSelectedMaterials([])}
-                    className="text-[10px] transition-opacity hover:opacity-70"
+                    className="text-[11px] transition-opacity hover:opacity-70"
                     style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
                   >
                     Limpar

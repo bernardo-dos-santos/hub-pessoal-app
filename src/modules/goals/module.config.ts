@@ -10,7 +10,6 @@ export const goalsModuleConfig: ModuleDefinition = {
   status: 'active',
   accent: 'bg-teal-600',
   order: 60,
-  showInHome: true,
   category: 'productivity',
   supportsSearch: false,
   supportsAiSummary: false,

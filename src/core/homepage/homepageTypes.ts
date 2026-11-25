@@ -1,6 +1,6 @@
 export type HomepageItem = {
   id: string;
-  module: 'finance' | 'study' | 'college' | 'fitness' | 'goals' | 'planner' | 'concurso';
+  module: 'finance' | 'study' | 'college' | 'fitness' | 'goals' | 'planner';
   score: number;
   zone: 'now' | 'progress' | 'next';
   title: string;

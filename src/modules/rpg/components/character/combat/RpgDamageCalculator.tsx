@@ -26,10 +26,10 @@ export function RpgDamageCalculator({ character, compact = false, onResourceChan
         </div>
       ) : null}
       <label className="grid gap-2">
-        <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Dano recebido</span>
+        <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Dano recebido</span>
         <input
           className="h-10 text-lg tabular-nums"
-          style={{ fontWeight: 300 }}
+          style={{ fontWeight: 400 }}
           type="number"
           value={incomingDamage}
           onChange={(event) => setIncomingDamage(Number(event.target.value))}

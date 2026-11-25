@@ -161,7 +161,7 @@ export function QuestionRunPage() {
         </div>
 
         <div className="py-3" style={{ borderBottom: '1px solid var(--hub-border)' }}>
-          <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+          <p className="mb-3 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
             {q.subjectTag}
           </p>
           <MathText content={q.statement} className="text-sm font-medium leading-relaxed" style={{ color: 'var(--hub-text)' }} />
@@ -204,7 +204,7 @@ export function QuestionRunPage() {
           <div className="space-y-3">
             {q.explanation && (
               <div className="py-3" style={{ borderLeft: '2px solid color-mix(in srgb, var(--hub-accent) 30%, transparent)', paddingLeft: '10px' }}>
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Explicação</p>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Explicação</p>
                 <MathText content={q.explanation} className="text-xs leading-relaxed" style={{ color: 'var(--hub-muted)' }} />
               </div>
             )}

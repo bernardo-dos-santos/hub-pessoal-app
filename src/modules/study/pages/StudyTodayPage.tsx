@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ModuleHeader, Card, Eyebrow, ListRow } from '../../../shared/ui';
+import { ModuleHeader, Card, Eyebrow, ListRow, Button } from '../../../shared/ui';
+import { ModuleAttentionCard } from '../../../core/alerts/ModuleAttentionCard';
+import { studyAlertProvider } from '../alerts/studyAlertProvider';
 import { getStudyTabs } from '../components/studyTabs';
 import { studyProgressService } from '../services/studyProgressService';
+import { studySessionService } from '../services/studySessionService';
 import { deckService } from '../services/deckService';
 import { questionService } from '../services/questionService';
 import { errorNotebookService } from '../services/errorNotebookService';
@@ -11,127 +14,60 @@ import { retentionService } from '../services/retentionService';
 import { sessionCompletionService, type CompletionStatus } from '../services/sessionCompletionService';
 import { jarvisCheckInService } from '../services/jarvisCheckInService';
 import { subjectService } from '../../college/services/subjectService';
-import type { WeeklySession } from '../../planner/types/routine';
+import { TodaySessionRow } from '../../planner/components/TodaySessionRow';
 
-const SESSION_TYPE_LABEL: Record<string, string> = {
-  study: 'Estudo', review: 'Revisão', train: 'Treino', rest: 'Descanso', admin: 'Admin', other: 'Outro',
-};
+const sectionLabel = { fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' } as const;
 
-function TodaySession({
-  session,
-  index,
-  weekOf,
-  status,
-  onMark,
-}: {
-  session: WeeklySession;
-  index: number;
-  weekOf: string;
-  status: CompletionStatus | null;
-  onMark: (status: CompletionStatus) => void;
-}) {
-  const statusColor = status === 'done' ? 'var(--hub-positive)' : status === 'partial' ? 'var(--hub-warning)' : status === 'skipped' ? 'var(--hub-negative)' : 'var(--hub-disabled)';
-
-  return (
-    <div
-      key={`${weekOf}:${index}`}
-      style={{
-        paddingTop: '10px',
-        paddingBottom: '10px',
-        borderBottom: '1px solid var(--hub-border)',
-        opacity: status === 'skipped' ? 0.5 : 1,
-      }}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="tabular-nums shrink-0" style={{ fontSize: '11px', color: 'var(--hub-subtle)' }}>
-              {session.startTime}
-            </span>
-            <span className="truncate" style={{ fontSize: '13px', color: status === 'done' ? 'var(--hub-positive)' : 'var(--hub-text)', textDecoration: status === 'skipped' ? 'line-through' : 'none' }}>
-              {session.topic}
-            </span>
-          </div>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span style={{ fontSize: '11px', color: 'var(--hub-subtle)' }}>
-              {SESSION_TYPE_LABEL[session.type] ?? session.type} · {session.durationMinutes}min
-            </span>
-            {status && (
-              <span style={{ fontSize: '10px', color: statusColor, fontWeight: 500 }}>
-                {status === 'done' ? '✓ Feito' : status === 'partial' ? '~ Parcial' : '✗ Pulado'}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {!status && (
-          <div className="flex items-center gap-2 shrink-0">
-            <button onClick={() => onMark('done')} className="text-xs transition-opacity hover:opacity-70" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--hub-positive)' }}>✓</button>
-            <button onClick={() => onMark('partial')} className="text-xs transition-opacity hover:opacity-70" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--hub-warning)' }}>~</button>
-            <button onClick={() => onMark('skipped')} className="text-xs transition-opacity hover:opacity-70" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--hub-negative)' }}>✗</button>
-          </div>
-        )}
-
-        {status && (
-          <button
-            onClick={() => {
-              sessionCompletionService.markSession(weekOf, index, 'done' === status ? 'skipped' : 'done');
-              onMark(status === 'done' ? 'skipped' : 'done');
-            }}
-            className="text-[10px] shrink-0 transition-opacity hover:opacity-70"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--hub-disabled)' }}
-          >
-            desfazer
-          </button>
-        )}
-      </div>
-    </div>
-  );
+function plural(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
 }
 
+/**
+ * Resumo dos Estudos no formato dos módulos: o hero
+ * responde "o que eu estudo agora?" num número e numa frase — o que está vencido
+ * (flashcards + erros) e a disciplina mais fraca — com o botão que começa. Ao
+ * lado (embaixo no celular) o "Precisa de você" do próprio alert provider; o
+ * ritmo e as disciplinas vêm depois da resposta.
+ */
 export function StudyTodayPage() {
   const [autoNotice, setAutoNotice] = useState<string | null>(null);
   const [completions, setCompletions] = useState<Record<number, CompletionStatus>>({});
   const navigate = useNavigate();
 
-  // Exclusivo (não inclusivo): tira só matéria arquivada, mantém tópico de
-  // concurso — ver o comentário em subjectService.listArchivedSubjectTags().
+  // Exclusivo (não inclusivo): tira só matéria arquivada — ver o comentário em
+  // subjectService.listArchivedSubjectTags().
   const activeSubjects = subjectService.listActiveSubjects();
   const archivedTags = subjectService.listArchivedSubjectTags();
   const dueCards = deckService.dueQuestionsCount(archivedTags);
   const pendingErrors = errorNotebookService.countPending(archivedTags);
   const weakestTag = studyProgressService.getWeakestTag(archivedTags);
+  const masteries = new Map(studyProgressService.getMasteriesForTags(activeSubjects.map((s) => s.name)).map((m) => [m.tag, m]));
+  const weakest = weakestTag ? masteries.get(weakestTag) : undefined;
   const recentRetention = retentionService.getRecentRate(7);
+  const streak = studySessionService.getStreak();
+  const todayMinutes = studySessionService.getTodayMinutes();
 
-  const todaySessions = sessionCompletionService.getTodaySessions();
+  // O plano da semana tem o dia inteiro (treino, descanso…); aqui só o que é estudo.
+  const todaySessions = sessionCompletionService.getTodaySessions()
+    .filter(({ session }) => session.type === 'study' || session.type === 'review');
   const weekOf = sessionCompletionService.getCurrentWeekOf();
 
   const checkIn = jarvisCheckInService.getTodayCheckIn();
   const burnoutRisk = jarvisCheckInService.getBurnoutRisk();
 
   useEffect(() => {
-    if (weekOf) {
-      setCompletions(sessionCompletionService.getWeekCompletions(weekOf));
-    }
+    if (weekOf) setCompletions(sessionCompletionService.getWeekCompletions(weekOf));
 
+    if (!autoGenerateService.isEnabled()) return;
     const notice = autoGenerateService.getLastNotice();
     if (notice) setAutoNotice(notice);
 
-    // Faculdade primeiro (uso principal do módulo), concurso só se sobrar cota.
-    // A segunda chamada é barata quando a primeira gerou: `canGenerate` já vê
-    // callCount no teto do dia e volta sem tocar na IA.
     (async () => {
-      const fromCollege = await autoGenerateService.runAutoGenerate('college');
-      const results = fromCollege.length > 0
-        ? fromCollege
-        : await autoGenerateService.runAutoGenerate('cbmsc');
+      const results = await autoGenerateService.runAutoGenerate();
 
       if (results.length > 0) {
         const label = results
-          .map((r) => {
-            const topic = r.subTag ? `${r.tag} — ${r.subTag}` : r.tag;
-            return `${r.count} ${r.type === 'questions' ? 'questões' : 'resumo'} de ${topic}`;
-          })
+          .map((r) => `${r.count} ${r.type === 'questions' ? 'questões' : 'resumo'} de ${r.tag}`)
           .join(', ');
         const text = `Gerado automaticamente: ${label}`;
         autoGenerateService.saveNotice(text);
@@ -139,10 +75,10 @@ export function StudyTodayPage() {
         return;
       }
 
-      // Falhou em silêncio era o comportamento antigo: o serviço grava o motivo
-      // em study.autoGen.notice, então basta reler para o aviso chegar na tela.
-      const notice = autoGenerateService.getLastNotice();
-      if (notice) setAutoNotice(notice);
+      // O serviço grava o motivo de não ter gerado em study.autoGen.notice;
+      // reler é o que faz o aviso chegar na tela em vez de falhar em silêncio.
+      const after = autoGenerateService.getLastNotice();
+      if (after) setAutoNotice(after);
     })().catch((err) => {
       autoGenerateService.saveNotice(`Geração automática falhou: ${err instanceof Error ? err.message : String(err)}`);
       setAutoNotice(autoGenerateService.getLastNotice() ?? '');
@@ -156,122 +92,144 @@ export function StudyTodayPage() {
     setCompletions(sessionCompletionService.getWeekCompletions(weekOf));
   }
 
-  const hasToday = dueCards > 0 || pendingErrors > 0;
+  const dueTotal = dueCards + pendingErrors;
+  const dueParts = [
+    dueCards > 0 ? plural(dueCards, 'flashcard vencido', 'flashcards vencidos') : null,
+    pendingErrors > 0 ? plural(pendingErrors, 'erro para revisar', 'erros para revisar') : null,
+  ].filter(Boolean).join(' e ');
+  const weakSentence = weakestTag
+    ? `A mais fraca é ${weakestTag}${weakest && weakest.score > 0 ? ` (${weakest.score}% de acerto)` : ''} — a sessão começa por ela.`
+    : activeSubjects.length === 0
+      ? 'Cadastre as disciplinas na Faculdade para os Estudos se organizarem por elas.'
+      : 'Ainda não há questões respondidas para saber qual disciplina está mais fraca.';
+
+  const rhythm: { label: string; value: string; color?: string }[] = [
+    { label: 'Sequência', value: streak > 0 ? plural(streak, 'dia', 'dias') : '—' },
+    { label: 'Hoje', value: todayMinutes > 0 ? `${todayMinutes} min` : '—' },
+  ];
+  if (recentRetention !== null) {
+    rhythm.push({
+      label: 'Retenção 7 dias',
+      value: `${recentRetention}%`,
+      color: recentRetention >= 80 ? 'var(--hub-positive)' : recentRetention >= 60 ? 'var(--hub-warning)' : 'var(--hub-negative)',
+    });
+  }
+  if (checkIn && checkIn.energy > 0) rhythm.push({ label: 'Energia', value: `${checkIn.energy}/5` });
+  if (burnoutRisk === 'high') rhythm.push({ label: 'Carga', value: 'sobrecarga — pegue leve', color: 'var(--hub-negative)' });
 
   return (
     <div>
-      <ModuleHeader eyebrow="Módulo · Estudos" title="Estudar" tabs={getStudyTabs(pendingErrors)} />
+      <ModuleHeader eyebrow="Módulo · Estudos" title="Hoje" tabs={getStudyTabs(pendingErrors)} />
 
-      <Card>
-        <div className="flex items-center justify-between mb-3">
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
-            Estado do dia
-          </p>
-          <div className="flex items-center gap-3">
-            {checkIn && checkIn.energy > 0 && (
-              <span className="text-xs" style={{ color: 'var(--hub-subtle)' }}>
-                ⚡{checkIn.energy}/5
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card hero>
+            <p className="font-medium uppercase" style={sectionLabel}>Para hoje</p>
+            <div className="mt-3 flex items-baseline gap-3">
+              <span className="tabular-nums" style={{ fontSize: '58px', lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', color: dueTotal > 0 ? 'var(--hub-text)' : 'var(--hub-positive)' }}>
+                {dueTotal}
               </span>
-            )}
-            {burnoutRisk === 'high' && (
-              <span className="text-xs" style={{ color: 'var(--hub-negative)' }}>⚠ sobrecarga</span>
-            )}
-            {recentRetention !== null && (
-              <span
-                className="text-xs tabular-nums"
-                style={{ color: recentRetention >= 80 ? 'var(--hub-positive)' : recentRetention >= 60 ? 'var(--hub-warning)' : 'var(--hub-negative)' }}
-              >
-                ret. {recentRetention}%
+              <span className="text-sm" style={{ color: 'var(--hub-muted)' }}>
+                {dueTotal > 0 ? 'para revisar' : 'em dia'}
               </span>
+            </div>
+            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--hub-text-body)' }}>
+              {dueTotal > 0 ? `${dueParts[0].toUpperCase()}${dueParts.slice(1)}. ` : 'Nada vencido — é dia de avançar matéria. '}
+              {weakSentence}
+            </p>
+
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-3">
+              <Button type="button" onClick={() => navigate(weakestTag ? `/estudos/questoes/praticar?tag=${encodeURIComponent(weakestTag)}` : '/estudos/questoes/praticar')}>
+                Começar sessão
+              </Button>
+              {dueCards > 0 && (
+                <Link to="/estudos/flashcards/praticar/misto" className="text-sm font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+                  Revisar flashcards
+                </Link>
+              )}
+              {pendingErrors > 0 && (
+                <Link to="/estudos/erros/drill" className="text-sm font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+                  Refazer erros
+                </Link>
+              )}
+            </div>
+
+            {autoNotice && (
+              <p className="mt-4 text-xs" style={{ color: 'var(--hub-subtle)' }}>{autoNotice}</p>
             )}
-          </div>
+
+            {todaySessions.length > 0 && weekOf && (
+              <div className="mt-5" style={{ borderTop: '1px solid var(--hub-border)', paddingTop: '12px' }}>
+                <p className="font-medium uppercase" style={sectionLabel}>No plano de hoje</p>
+                {todaySessions.map(({ session, index }, i) => (
+                  <TodaySessionRow
+                    key={`${weekOf}:${index}`}
+                    session={session}
+                    status={completions[index] ?? null}
+                    last={i === todaySessions.length - 1}
+                    onMark={(s) => handleMark(index, s)}
+                  />
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <ModuleAttentionCard provider={studyAlertProvider} className="lg:hidden" />
+
+          {/* Disciplinas. É a resposta para "preciso estudar Grafos" — a pergunta que
+              o módulo não respondia, porque tudo era organizado por ferramenta e
+              cada ferramenta perguntava a matéria depois. */}
+          {activeSubjects.length > 0 && (
+            <Card>
+              <Eyebrow style={{ marginBottom: '8px' }}>Disciplinas</Eyebrow>
+              {activeSubjects.map((subject, i) => {
+                const questionCount = questionService.listBySubject(subject.name).length;
+                const pending = errorNotebookService.listBySubject(subject.name)
+                  .filter((e) => e.status !== 'mastered').length;
+                const mastery = masteries.get(subject.name);
+                const meta = [
+                  questionCount > 0 ? plural(questionCount, 'questão', 'questões') : 'sem questões',
+                  pending > 0 ? plural(pending, 'erro', 'erros') : null,
+                ].filter(Boolean).join(' · ');
+                return (
+                  <ListRow
+                    key={subject.id}
+                    to={`/estudos/disciplina/${encodeURIComponent(subject.name)}`}
+                    label={(
+                      <>
+                        <p className="text-sm" style={{ color: 'var(--hub-text)' }}>{subject.name}</p>
+                        <p className="mt-0.5 text-xs" style={{ color: pending > 0 ? 'var(--hub-warning)' : 'var(--hub-subtle)' }}>{meta}</p>
+                      </>
+                    )}
+                    value={(
+                      <span className="tabular-nums text-sm" style={{ color: mastery && mastery.score > 0 ? (mastery.score >= 70 ? 'var(--hub-positive)' : mastery.score >= 50 ? 'var(--hub-warning)' : 'var(--hub-negative)') : 'var(--hub-subtle)' }}>
+                        {mastery && mastery.score > 0 ? `${mastery.score}%` : '—'}
+                        {mastery?.trend === 'up' ? ' ↑' : mastery?.trend === 'down' ? ' ↓' : ''}
+                      </span>
+                    )}
+                    last={i === activeSubjects.length - 1}
+                  />
+                );
+              })}
+            </Card>
+          )}
         </div>
 
-        {autoNotice && (
-          <p className="mb-3 text-xs" style={{ color: 'var(--hub-subtle)' }}>
-            ✨ {autoNotice}
-          </p>
-        )}
-
-        {hasToday && (
-          <div className="flex gap-4 mb-4">
-            {dueCards > 0 && (
-              <span className="text-xs" style={{ color: 'var(--hub-muted)' }}>
-                <span className="tabular-nums font-medium" style={{ color: 'var(--hub-text)' }}>{dueCards}</span> vencidos
-              </span>
-            )}
-            {pendingErrors > 0 && (
-              <span className="text-xs" style={{ color: 'var(--hub-muted)' }}>
-                <span className="tabular-nums font-medium" style={{ color: 'var(--hub-text)' }}>{pendingErrors}</span> erros pendentes
-              </span>
-            )}
-          </div>
-        )}
-        {!hasToday && (
-          <p className="mb-4 text-xs" style={{ color: 'var(--hub-subtle)' }}>Em dia — manter a sequência.</p>
-        )}
-
-        {/* Sessões planejadas para hoje */}
-        {todaySessions.length > 0 && weekOf && (
-          <div className="mb-4" style={{ borderTop: '1px solid var(--hub-border)', paddingTop: '12px' }}>
-            {todaySessions.map(({ session, index }) => (
-              <TodaySession
-                key={`${weekOf}:${index}`}
-                session={session}
-                index={index}
-                weekOf={weekOf}
-                status={completions[index] ?? null}
-                onMark={(s) => handleMark(index, s)}
+        <div className="flex min-w-0 flex-col gap-5">
+          <ModuleAttentionCard provider={studyAlertProvider} className="hidden lg:block" />
+          <Card>
+            <p className="font-medium uppercase" style={{ ...sectionLabel, marginBottom: '4px' }}>Ritmo</p>
+            {rhythm.map((row, i) => (
+              <ListRow
+                key={row.label}
+                label={row.label}
+                value={<span className="tabular-nums" style={{ color: row.color ?? 'var(--hub-text)' }}>{row.value}</span>}
+                last={i === rhythm.length - 1}
               />
             ))}
-          </div>
-        )}
-
-        <div style={{ borderTop: '1px solid var(--hub-border)', paddingTop: '16px' }}>
-          <button
-            onClick={() => navigate('/estudos/questoes/praticar')}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
-            className="group w-full"
-          >
-            <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--hub-accent)' }}>
-              ▶ Começar sessão
-            </span>
-            {weakestTag && (
-              <p className="mt-1 text-xs" style={{ color: 'var(--hub-subtle)' }}>
-                {dueCards > 0 ? `${dueCards} SM-2 · ` : ''}Praticar {weakestTag}
-              </p>
-            )}
-          </button>
+          </Card>
         </div>
-      </Card>
-
-      {/* Disciplinas. É a resposta para "preciso estudar Grafos" — a pergunta que
-          o módulo não respondia, porque tudo era organizado por ferramenta e
-          cada ferramenta perguntava a matéria depois. */}
-      {activeSubjects.length > 0 && (
-        <Card className="mt-5">
-          <Eyebrow style={{ marginBottom: '8px' }}>Disciplinas</Eyebrow>
-          {activeSubjects.map((subject, i) => {
-            const questionCount = questionService.listBySubject(subject.name).length;
-            const pending = errorNotebookService.listBySubject(subject.name)
-              .filter((e) => e.status !== 'mastered').length;
-            return (
-              <ListRow
-                key={subject.id}
-                to={`/estudos/disciplina/${encodeURIComponent(subject.name)}`}
-                label={<span style={{ fontSize: '14px', color: 'var(--hub-text)' }}>{subject.name}</span>}
-                value={(
-                  <span className="tabular-nums" style={{ fontSize: '12px', color: pending > 0 ? 'var(--hub-warning)' : 'var(--hub-subtle)' }}>
-                    {questionCount > 0 ? `${questionCount}q` : '—'}
-                    {pending > 0 && ` · ${pending} erro(s)`}
-                  </span>
-                )}
-                last={i === activeSubjects.length - 1}
-              />
-            );
-          })}
-        </Card>
-      )}
+      </div>
     </div>
   );
 }

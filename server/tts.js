@@ -1,17 +1,22 @@
 // server/tts.js
-// Text-to-speech do Jarvis via Azure AI Speech (voz neural pt-BR).
-// Voz oficial: Nicolau, grave leve (pitch -7%), pace levemente acelerado
-// (+5% — fala em ritmo natural soava hesitante pro personagem).
+// Text-to-speech da Íris via Azure AI Speech.
+// Voz oficial: Seraphina multilíngue falando pt-BR, levemente grave (pitch -2%)
+// e acelerada (+6%). Escolhida por Bernardo em 2026-10-11 entre 13 vozes
+// femininas (as pt-BR nativas e a Francisca soaram sem graça); antes, com o
+// JARVIS, era o Nicolau. As vozes HD ("Dragon") seriam mais naturais, mas não
+// existem na região brazilsouth.
+// Vozes multilíngues escolhem o idioma pelo texto — o <lang> fixa o pt-BR,
+// senão uma frase curta pode sair com sotaque da voz de origem (alemão).
 // Requer AZURE_SPEECH_KEY e AZURE_SPEECH_REGION no ambiente.
 
 const AZURE_KEY = process.env.AZURE_SPEECH_KEY;
 const AZURE_REGION = process.env.AZURE_SPEECH_REGION ?? 'brazilsouth';
 
-// Config da voz do Jarvis (ajustável aqui — só mudar e reiniciar o server).
+// Config da voz da Íris (ajustável aqui — só mudar e reiniciar o server).
 export const JARVIS_VOICE = {
-  name: 'pt-BR-NicolauNeural',
-  pitch: '-7%',
-  rate: '+5%',
+  name: 'de-DE-SeraphinaMultilingualNeural',
+  pitch: '-2%',
+  rate: '+6%',
 };
 
 function escapeXml(str) {
@@ -47,7 +52,7 @@ export async function synthesizeSpeech(text) {
     `<speak version='1.0' xml:lang='pt-BR'>` +
     `<voice name='${JARVIS_VOICE.name}'>` +
     `<prosody pitch='${JARVIS_VOICE.pitch}' rate='${JARVIS_VOICE.rate}'>` +
-    `${toSpokenSsml(text)}` +
+    `<lang xml:lang='pt-BR'>${toSpokenSsml(text)}</lang>` +
     `</prosody></voice></speak>`;
 
   const endpoint = `https://${AZURE_REGION}.tts.speech.microsoft.com/cognitiveservices/v1`;

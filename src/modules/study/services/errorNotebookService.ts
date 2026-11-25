@@ -16,8 +16,8 @@ export const errorNotebookService = {
   /**
    * `excludeTags` é opcional e EXCLUSIVO (não inclusivo) — pensado pra tirar
    * tag de matéria arquivada de recomendação automática (dashboard "Hoje",
-   * Jarvis, planner) sem esconder tópico de concurso, que usa subjectTag
-   * livre sem registro em `subjectService` (ver o comentário lá).
+   * Jarvis, planner) sem esconder tag livre que não tem registro em
+   * `subjectService` (ver o comentário lá).
    */
   listPending(excludeTags?: Set<string>): ErrorNotebookEntry[] {
     return this.listEntries().filter(

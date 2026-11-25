@@ -19,11 +19,11 @@ const RESOURCE_COLOR = {
 function ResourceBar({ label, color, current, max }: { label: string; color: string; current: number; max: number }) {
   return (
     <div className="space-y-1.5">
-      <div className="flex justify-between text-[10px]">
+      <div className="flex justify-between text-[11px]">
         <span className="font-semibold uppercase" style={{ letterSpacing: '0.12em', color }}>{label}</span>
         <span className="tabular-nums" style={{ color: 'var(--hub-muted)' }}>{current} / {max}</span>
       </div>
-      <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'rgba(58,44,34,0.08)' }}>
+      <div className="h-1.5 w-full overflow-hidden rounded-full" style={{ background: 'var(--hub-track)' }}>
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${Math.min(100, (current / Math.max(1, max)) * 100)}%`, background: color }}
@@ -62,11 +62,11 @@ export const RpgCharacterCard: React.FC<RpgCharacterCardProps> = ({
 
         <div className="mb-6 grid grid-cols-2 gap-4">
           <div>
-            <span className="font-semibold uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Campanha</span>
+            <span className="font-semibold uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Campanha</span>
             <p className="truncate text-sm" style={{ color: 'var(--hub-text-body)' }}>{character.campaign}</p>
           </div>
           <div>
-            <span className="font-semibold uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Mestre</span>
+            <span className="font-semibold uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Mestre</span>
             <p className="truncate text-sm" style={{ color: 'var(--hub-text-body)' }}>{character.masterName}</p>
           </div>
         </div>
@@ -79,7 +79,7 @@ export const RpgCharacterCard: React.FC<RpgCharacterCardProps> = ({
 
         <div className="mt-6 flex items-end justify-between">
           <div>
-            <p className="font-semibold uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)', marginBottom: '4px' }}>Defesa</p>
+            <p className="font-semibold uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)', marginBottom: '4px' }}>Defesa</p>
             <HeroValue size={24}>{defense}</HeroValue>
           </div>
           <span className="text-sm font-medium transition-opacity group-hover:opacity-70" style={{ color: 'var(--hub-primary)' }}>

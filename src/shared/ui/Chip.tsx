@@ -18,7 +18,7 @@ export function Chip({ children, signal = 'accent', color, className = '' }: Chi
       style={{
         display: 'inline-block',
         padding: '2px 9px',
-        borderRadius: 'var(--hub-radius-pill)',
+        borderRadius: 'var(--hub-radius-control)',
         fontSize: '11px',
         fontWeight: 500,
         lineHeight: 1.5,

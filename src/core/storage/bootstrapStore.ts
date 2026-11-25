@@ -1,8 +1,11 @@
 import { backupService } from '../backup/backupService';
 import { apiStorageAdapter, primeApiCache } from './apiStorageAdapter';
-import { localStorageAdapter } from './local-storage.adapter';
+import { localStorageAdapter, migrateLegacyLocalKeys, setLocalNamespace } from './local-storage.adapter';
+import { getSession, loadSession } from '../session/session';
 import { setActiveAdapter } from './storage.adapter';
-import { apiUrl, isCapacitorApp, setBackendBase, TAILSCALE_BACKEND } from '../config/backendConfig';
+import { apiUrl, chooseBackendBase } from '../config/backendConfig';
+
+const RETIRED_KEYS = ['study.weeklyPlan', 'study.routine'];
 
 const BOOT_TIMEOUT_MS = 5000;
 
@@ -30,35 +33,40 @@ async function putKey(key: string, value: unknown): Promise<void> {
  * - Backend indisponível → cai no localStorageAdapter (modo standalone).
  */
 export async function bootstrapStore(): Promise<StoreMode> {
-  // APK (Capacitor): aponta para o backend via Tailscale antes de tentar
-  if (isCapacitorApp()) setBackendBase(TAILSCALE_BACKEND);
+  // APK (Capacitor): Tailscale when it answers, otherwise the public address.
+  await chooseBackendBase();
+
+  // Whose data before which data: the local namespace (and so the merge
+  // below) must belong to the user the backend says this is.
+  migrateLegacyLocalKeys();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BOOT_TIMEOUT_MS);
+  const sessionLoad = await loadSession(controller.signal);
+  setLocalNamespace(getSession().id);
+  if (sessionLoad === 'denied') {
+    clearTimeout(timeout);
+    setActiveAdapter(localStorageAdapter);
+    _currentMode = 'local';
+    return 'local';
+  }
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), BOOT_TIMEOUT_MS);
     const res = await fetch(apiUrl('/api/store'), { signal: controller.signal });
     clearTimeout(timeout);
 
     if (!res.ok) throw new Error(`backend respondeu ${res.status}`);
     const snapshot: Record<string, unknown> = await res.json();
 
-    // Migração de namespace: study.weeklyPlan → planner.weeklyPlan, study.routine → planner.routine
-    const namespaceMigrations: Array<[string, string]> = [
-      ['study.weeklyPlan', 'planner.weeklyPlan'],
-      ['study.routine', 'planner.routine'],
-    ];
-    for (const [oldKey, newKey] of namespaceMigrations) {
-      if (snapshot[oldKey] !== undefined && snapshot[newKey] === undefined) {
-        await putKey(newKey, snapshot[oldKey]);
-        console.log(`[store] migração: ${oldKey} → ${newKey}`);
-      }
-    }
+    // Keys renamed long ago (the server moves them at boot, server/db.js). An old
+    // offline copy must not push them back — a stale `study.weeklyPlan` from June
+    // was what the evening push kept reading.
+    for (const key of RETIRED_KEYS) localStorageAdapter.removeItem(key);
 
     // Merge de localStorage → SQLite: copia chaves que existem no localStorage
     // mas ainda não estão no SQLite. Garante que dados gravados em modo local
     // (bootstrap timeout, troca de porta) não se percam ao voltar para api mode.
     const local = backupService.exportData().data;
-    const missingEntries = Object.entries(local).filter(([key]) => !(key in snapshot));
+    const missingEntries = Object.entries(local).filter(([key]) => !(key in snapshot) && !RETIRED_KEYS.includes(key));
     if (missingEntries.length > 0) {
       await Promise.all(missingEntries.map(([key, value]) => putKey(key, value)));
       for (const [key, value] of missingEntries) snapshot[key] = value;
@@ -83,8 +91,8 @@ export async function bootstrapStore(): Promise<StoreMode> {
  * Lança erro com detalhes se falhar (para o UI exibir).
  */
 export async function resyncFromBackend(): Promise<StoreMode> {
-  // Garante que o base URL está configurado (APK ou fallback por protocolo)
-  setBackendBase(isCapacitorApp() ? TAILSCALE_BACKEND : '');
+  // The phone may have joined or left the tailnet since the boot.
+  await chooseBackendBase();
 
   const url = apiUrl('/api/store');
   console.log('[resync] tentando conectar em:', url);
@@ -93,6 +101,10 @@ export async function resyncFromBackend(): Promise<StoreMode> {
   const timeout = setTimeout(() => controller.abort(), 6000);
 
   try {
+    // The user may differ from the one the page booted with (e.g. the first
+    // boot was offline); the store snapshot is theirs, so the session must be too.
+    await loadSession(controller.signal);
+    setLocalNamespace(getSession().id);
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 

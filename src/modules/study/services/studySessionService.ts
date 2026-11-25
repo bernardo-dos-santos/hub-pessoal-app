@@ -1,4 +1,5 @@
 import { storageAdapter } from '../../../core/storage/storage.adapter';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 const ACTIVITY_KEY = 'study.activityLog';
 
@@ -9,7 +10,7 @@ type ActivityEntry = {
 };
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 function getLog(): ActivityEntry[] {
@@ -59,7 +60,7 @@ export const studySessionService = {
     const log = getLog();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const cutoffStr = localDayKey(cutoff);
     return log
       .filter((e) => e.date >= cutoffStr)
       .sort((a, b) => b.date.localeCompare(a.date));

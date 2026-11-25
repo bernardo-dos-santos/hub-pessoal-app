@@ -7,18 +7,15 @@ import { studyContentService } from './studyContentService';
 import { pdfTextService } from './pdfTextService';
 import { assessmentService } from '../../college/services/assessmentService';
 import { subjectService } from '../../college/services/subjectService';
-import { getSubTopics } from '../data/subTopicTaxonomy';
-import { CBMSC_SUBJECTS } from '../data/cbmscSubjects';
-import { ABIN_SUBJECTS } from '../data/abinSubjects';
 import type { NewQuestion } from './questionService';
 import type { ExamStyle } from '../types/question';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 export type AutoGenResult = {
   tag: string;
-  subTag?: string;
   type: 'questions' | 'summary';
   count: number;
-  source?: 'pdf' | 'taxonomy';
+  source?: 'pdf' | 'subject';
 };
 
 type AutoGenLog = {
@@ -37,16 +34,6 @@ type AutoGenLog = {
   lastOutcome?: 'generated' | 'nothing' | 'failed';
 };
 
-/**
- * De onde saem as disciplinas candidatas.
- *
- * `'college'` é o padrão: o uso principal do módulo é faculdade, e a Prioridade 1
- * (gerar a partir de PDF) filtra `subjects.includes(c.subjectTag)` — com a lista
- * fixa em CBMSC, material do SIGAA nunca passava nesse filtro e a geração a
- * partir dele era inalcançável por construção.
- */
-export type AutoGenScope = 'college' | 'cbmsc' | 'abin';
-
 type RawQuestion = {
   statement: string;
   options: { letter: string; text: string }[];
@@ -58,16 +45,17 @@ type RawQuestion = {
 
 const STORAGE_LOG    = 'study.autoGen.log';
 const STORAGE_NOTICE = 'study.autoGen.notice';
+/** Off only when the person turns it off in Estudos → Configurar; absent = on. */
+const STORAGE_ENABLED = 'study.autoGen.enabled';
 const MAX_CALLS_PER_DAY      = 1;   // 10 questões/dia via Gemini (1 RPD)
 const MIN_SUBJECT_QUESTIONS  = 10;  // mínimo por disciplina antes de parar geração básica
-const MIN_SUBTAG_QUESTIONS   = 3;   // mínimo por sub-tópico
 const MIN_PDF_QUESTIONS      = 10;  // questões por PDF antes de considerar processado
 const CRITICAL_MASTERY       = 35;  // revisão só abaixo disso
 const EXAM_SKIP_DAYS         = 3;   // não gera se tiver prova em <= N dias
 const QUESTIONS_PER_CALL     = 10;  // questões por chamada à IA
 
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 function getLog(): AutoGenLog {
@@ -123,7 +111,7 @@ function hasImminentExam(daysThreshold: number): boolean {
   const today = todayStr();
   const limit = new Date();
   limit.setDate(limit.getDate() + daysThreshold);
-  const limitStr = limit.toISOString().slice(0, 10);
+  const limitStr = localDayKey(limit);
   return assessmentService.listAssessments().some(
     (a) => a.status === 'scheduled' && a.date >= today && a.date <= limitStr,
   );
@@ -159,36 +147,24 @@ function examUrgencyMultiplier(subjectTag: string): number {
 
 function buildQuestionsPrompt(
   subjectTag: string,
-  focusSubTag: string | undefined,
   sourceText: string | undefined,
   count = QUESTIONS_PER_CALL,
   examStyle: ExamStyle = 'generico',
 ): string {
-  const topicLine = focusSubTag
-    ? `Crie ${count} questões de múltipla escolha sobre "${subjectTag}", com foco EXCLUSIVO no sub-tópico "${focusSubTag}".`
-    : `Crie ${count} questões de múltipla escolha sobre "${subjectTag}".`;
-
-  const subTopics = getSubTopics(subjectTag);
-  const tagLine = focusSubTag
-    ? `- Inclua "${focusSubTag}" como uma das tags em TODAS as questões. Use APENAS tags desta lista canônica: [${(subTopics ?? [focusSubTag]).join(', ')}].`
-    : subTopics
-      ? `- Marque de 1 a 3 tags de tópico por questão. Use APENAS tags desta lista canônica: [${subTopics.join(', ')}].`
-      : `- Marque de 1 a 3 tags de tópico por questão.`;
-
   const sourceSection = sourceText
     ? `\n\nCONTEÚDO BASE (baseie as questões neste material):\n${sourceText.slice(0, 4000)}`
     : '';
 
   return [
-    `Você é um elaborador de questões de prova de concurso público no estilo ${examStyle}, em português do Brasil.`,
-    topicLine,
+    `Você é um elaborador de questões de prova no estilo ${examStyle}, em português do Brasil.`,
+    `Crie ${count} questões de múltipla escolha sobre "${subjectTag}".`,
     ``,
     `Regras:`,
     `- Cada questão tem 5 alternativas (A a E), com exatamente uma correta.`,
     `- O enunciado deve ser claro e cobrar entendimento, não decoreba trivial.`,
     `- Inclua uma explicação curta do porquê a correta está certa.`,
     `- Varie a dificuldade entre fácil, médio e difícil.`,
-    tagLine,
+    `- Marque de 1 a 3 tags de tópico por questão.`,
     ``,
     MATH_JSON_RULES,
     ``,
@@ -222,19 +198,6 @@ function parseRawQuestions(raw: unknown, subjectTag: string, contentId?: string)
     }));
 }
 
-function pickWeakestSubTag(subjectTag: string): { subTag: string } | null {
-  const questions = questionService.listBySubject(subjectTag);
-  const subTopics = getSubTopics(subjectTag);
-  if (!subTopics) return null;
-
-  const countPerSubTag = new Map<string, number>();
-  for (const q of questions) {
-    for (const t of q.tags) countPerSubTag.set(t, (countPerSubTag.get(t) ?? 0) + 1);
-  }
-  const thin = subTopics.find((t) => (countPerSubTag.get(t) ?? 0) < MIN_SUBTAG_QUESTIONS);
-  return thin ? { subTag: thin } : null;
-}
-
 export const autoGenerateService = {
   /**
    * Roda auto-geração em background via Gemini (sem Claude).
@@ -244,7 +207,8 @@ export const autoGenerateService = {
    * - Prioridade: PDFs sem questões → disciplina fraca (priorizadas por mastery × urgência de prova).
    * - Gera QUESTIONS_PER_CALL questões por chamada (1 RPD/dia).
    */
-  async runAutoGenerate(scope: AutoGenScope = 'college'): Promise<AutoGenResult[]> {
+  async runAutoGenerate(): Promise<AutoGenResult[]> {
+    if (!this.isEnabled()) return [];
     // Se tiver prova próxima, não gasta RPD em auto-geração
     if (hasImminentExam(EXAM_SKIP_DAYS)) {
       const msg = `Prova em ≤${EXAM_SKIP_DAYS} dias detectada — auto-geração pausada para preservar RPD.`;
@@ -252,9 +216,7 @@ export const autoGenerateService = {
       return [];
     }
 
-    const subjects = scope === 'cbmsc' ? CBMSC_SUBJECTS
-      : scope === 'abin' ? ABIN_SUBJECTS
-      : subjectService.listActiveSubjects().map((s) => s.name);
+    const subjects = subjectService.listActiveSubjects().map((s) => s.name);
 
     if (subjects.length === 0) {
       recordAttempt('nothing');
@@ -282,7 +244,7 @@ export const autoGenerateService = {
         const text = content.rawText ?? await pdfTextService.getText(content.sourceMaterialId!);
         if (!text) continue;
 
-        const prompt = buildQuestionsPrompt(content.subjectTag, undefined, text);
+        const prompt = buildQuestionsPrompt(content.subjectTag, text);
         const raw = await aiClient.completeJson<RawQuestion[]>(prompt);
         const questions = parseRawQuestions(raw, content.subjectTag, content.id);
         if (questions.length > 0) {
@@ -317,25 +279,20 @@ export const autoGenerateService = {
 
     for (const m of sorted) {
       const questionCount = questionService.listBySubject(m.tag).length;
-      const weakSubTag = pickWeakestSubTag(m.tag);
-      const focusSubTag = weakSubTag?.subTag;
-      const rateKey = focusSubTag ? `${m.tag}:${focusSubTag}` : m.tag;
+      const rateKey = m.tag;
 
       const log = getLog();
       if (!canGenerate(log, rateKey)) continue;
 
-      const subTagThin = !!weakSubTag;
-      const subjectThin = questionCount < MIN_SUBJECT_QUESTIONS;
-
-      if (subjectThin || subTagThin) {
+      if (questionCount < MIN_SUBJECT_QUESTIONS) {
         try {
-          const prompt = buildQuestionsPrompt(m.tag, focusSubTag, undefined);
+          const prompt = buildQuestionsPrompt(m.tag, undefined);
           const raw = await aiClient.completeJson<RawQuestion[]>(prompt);
           const questions = parseRawQuestions(raw, m.tag);
           if (questions.length > 0) {
             questionService.addMany(questions);
             consumeCall(rateKey);
-            results.push({ tag: m.tag, subTag: focusSubTag, type: 'questions', count: questions.length, source: 'taxonomy' });
+            results.push({ tag: m.tag, type: 'questions', count: questions.length, source: 'subject' });
             return results;
           }
         } catch (err) { failures.push(describeError(err)); }
@@ -349,13 +306,13 @@ export const autoGenerateService = {
         if (!canGenerate(logReview, rateKeyReview)) continue;
 
         try {
-          const prompt = buildQuestionsPrompt(m.tag, focusSubTag, undefined);
+          const prompt = buildQuestionsPrompt(m.tag, undefined);
           const raw = await aiClient.completeJson<RawQuestion[]>(prompt);
           const questions = parseRawQuestions(raw, m.tag);
           if (questions.length > 0) {
             questionService.addMany(questions);
             consumeCall(rateKeyReview);
-            results.push({ tag: m.tag, type: 'questions', count: questions.length, source: 'taxonomy' });
+            results.push({ tag: m.tag, type: 'questions', count: questions.length, source: 'subject' });
             return results;
           }
         } catch (err) { failures.push(describeError(err)); }
@@ -387,5 +344,23 @@ export const autoGenerateService = {
 
   saveNotice(text: string) {
     storageAdapter.setItem(STORAGE_NOTICE, { text, date: new Date().toISOString() });
+  },
+
+  /**
+   * Whether opening Estudos may spend an AI call creating questions. It runs on
+   * the person's own AI key, so it's theirs to turn off.
+   */
+  isEnabled(): boolean {
+    return storageAdapter.getItem<boolean>(STORAGE_ENABLED) !== false;
+  },
+
+  setEnabled(enabled: boolean) {
+    storageAdapter.setItem(STORAGE_ENABLED, enabled);
+  },
+
+  /** When it last ran and how it went — for Configurar. */
+  getLastAttempt(): { at: string; outcome: 'generated' | 'nothing' | 'failed' } | null {
+    const log = storageAdapter.getItem<AutoGenLog>(STORAGE_LOG);
+    return log?.lastAttemptAt && log.lastOutcome ? { at: log.lastAttemptAt, outcome: log.lastOutcome } : null;
   },
 };

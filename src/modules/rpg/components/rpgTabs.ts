@@ -4,7 +4,7 @@ import { type ModuleTab } from '../../../shared/ui';
  * própria navegação interna (a ficha usa abas client-side; campanhas, rotas). */
 export function getRpgTabs(): ModuleTab[] {
   return [
-    { label: 'Personagem', to: '/rpg', end: true },
+    { label: 'Personagens', to: '/rpg', end: true },
     { label: 'Campanhas', to: '/rpg/campanhas' },
   ];
 }

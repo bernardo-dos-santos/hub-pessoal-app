@@ -502,7 +502,6 @@ assert.equal(isIsoDate(todayKey(new Date("2026-05-24T12:00:00.000Z"))), true, "t
 const moduleConfigSource = fs.readFileSync(moduleConfigPath, "utf8");
 const routesSource = fs.readFileSync(routesPath, "utf8");
 assert.equal(moduleConfigSource.includes("status: 'active'"), true, "Faculdade deve estar ativa");
-assert.equal(moduleConfigSource.includes("showInHome: true"), true, "Faculdade deve aparecer na home");
 assert.equal(moduleConfigSource.includes("supportsAiSummary: false"), true, "Faculdade nao deve ativar IA");
 assert.equal(moduleConfigSource.includes("supportsBackup: true"), true, "Faculdade deve declarar suporte ao backup local");
 assert.equal(routesSource.includes("path: 'faculdade/*'"), true, "Rotas de Faculdade devem aceitar subrotas");

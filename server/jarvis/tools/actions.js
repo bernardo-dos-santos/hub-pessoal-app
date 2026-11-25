@@ -3,7 +3,7 @@
  * (Fase 5), em vez de só ler/escrever um registro. Reusam o que o resto do
  * servidor já sabe fazer — nada de lógica nova de geração aqui.
  *
- * `run_sync` (SIGAA/Pluggy) tinha ficado de fora: Puppeteer de vários minutos
+ * `run_sync` (SIGAA) tinha ficado de fora: Puppeteer de vários minutos
  * é longo demais para o turno do chat e arriscado demais para uma tool call
  * disparar sozinha. Voltou na Fase 11 porque as duas objeções caíram — passa
  * pela fila de aprovação e roda solto (ver ../syncRunner.js), então não bloqueia
@@ -11,7 +11,8 @@
  */
 
 import { kvStore } from '../../db.js';
-import { kv } from '../context.js';
+import { kv, financeMonthStartDay } from '../context.js';
+import { isInFinancialMonth } from '../../../src/shared/finance/financeMonth.js';
 import { generateBriefing } from '../../briefing.js';
 import { generateAndSaveWeeklyPlan } from '../../ai-planner.js';
 import { generateMonthlySummary } from '../../finance-monthly-summary.js';
@@ -69,11 +70,11 @@ export const actionTools = [
   },
   {
     name: 'run_sync',
-    description: 'Dispara um sync sob demanda: "sigaa" traz notas, tarefas e materiais da faculdade; "pluggy" traz transações e investimentos do banco. Vai para a fila de aprovação e depois roda por vários minutos em background — o resultado chega na caixa de entrada, não na sua resposta. Diga que pediu e siga; não fique esperando.',
+    description: 'Dispara um sync sob demanda: "sigaa" traz notas, tarefas e materiais da faculdade. Vai para a fila de aprovação e depois roda por vários minutos em background — o resultado chega na caixa de entrada, não na sua resposta. Diga que pediu e siga; não fique esperando.',
     input_schema: {
       type: 'object',
       properties: {
-        which: { type: 'string', enum: ['sigaa', 'pluggy'], description: 'Qual sync rodar' },
+        which: { type: 'string', enum: ['sigaa'], description: 'Qual sync rodar' },
         why: { type: 'string', description: 'Por que agora — aparece para o Bernardo na hora de aprovar' },
       },
       required: ['which', 'why'],
@@ -97,7 +98,7 @@ export async function executeActionTool(name, args) {
       const summary = await generateMonthlySummary(args.month ?? null);
       return {
         ok: true,
-        message: `${summary.diagnosis} (receita R$${summary.income.toFixed(0)}, gastos R$${summary.totalOutflow.toFixed(0)}, saldo R$${summary.balance.toFixed(0)})`,
+        message: `${summary.diagnosis} (receita R$${summary.income.toFixed(0)}, gastos R${summary.expenses.toFixed(0)}, saldo R$${summary.balance.toFixed(0)})`,
         affectedKey: `finance.monthly-summary.${args.month ?? summary.month}`,
       };
     }
@@ -108,7 +109,7 @@ export async function executeActionTool(name, args) {
       const matches = transactions.filter((t) =>
         (t.description ?? '').toLowerCase().includes(needle)
         && (!args.current_category || t.category === args.current_category)
-        && (!args.month || t.date?.startsWith(args.month)),
+        && (!args.month || isInFinancialMonth(t.date, args.month, financeMonthStartDay())),
       );
       const preview = matches.slice(0, 8).map((t) => ({ date: t.date, description: t.description, category: t.category }));
       if (args.dry_run !== false) {

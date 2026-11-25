@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, DateField, EditableText, Eyebrow, ModuleHeader, ProgressBar } from '../../../shared/ui';
+import { Card, DateField, EditableText, Eyebrow, ModuleHeader, ProgressBar, useConfirm } from '../../../shared/ui';
 import { getProjectTabs, projectEyebrow } from '../components/projectTabs';
 import { frontService } from '../services/frontService';
 import { daysSince, projectService } from '../services/projectService';
@@ -192,6 +192,7 @@ function NextActionLine({ task }: { task: ProjectTask | null }) {
 }
 
 export function ProjectDetailPage() {
+  const confirmAction = useConfirm();
   const { projectId = '' } = useParams();
   const navigate = useNavigate();
   const [, forceRender] = useState(0);
@@ -248,10 +249,10 @@ export function ProjectDetailPage() {
     refresh();
   }
 
-  function removeTask(task: ProjectTask) {
+  async function removeTask(task: ProjectTask) {
     const subs = projectTaskService.listSubtasks(task.id).length;
     const extra = subs > 0 ? `\n\nAs ${subs} subtarefa(s) também serão apagadas.` : '';
-    if (!confirm(`Excluir "${task.title}"?${extra}`)) return;
+    if (!(await confirmAction(`Excluir "${task.title}"?${extra}`))) return;
     projectTaskService.remove(task.id);
     refresh();
   }
@@ -323,8 +324,8 @@ export function ProjectDetailPage() {
     refresh();
   }
 
-  function removeMilestone(milestone: ProjectMilestone) {
-    if (!confirm(`Remover o marco "${milestone.title}"?`)) return;
+  async function removeMilestone(milestone: ProjectMilestone) {
+    if (!(await confirmAction(`Remover o marco "${milestone.title}"?`, { confirmLabel: 'Remover' }))) return;
     projectMilestoneService.remove(milestone.id);
     refresh();
   }
@@ -342,17 +343,17 @@ export function ProjectDetailPage() {
     refresh();
   }
 
-  function removeFront(front: Front) {
+  async function removeFront(front: Front) {
     const { orphanedTasks } = frontService.previewRemoval(front.id);
     const extra = orphanedTasks > 0
       ? `\n\n${orphanedTasks} tarefa(s) voltam para o projeto, sem frente — não são apagadas.`
       : '';
-    if (!confirm(`Remover a frente "${front.name}"?${extra}`)) return;
+    if (!(await confirmAction(`Remover a frente "${front.name}"?${extra}`, { confirmLabel: 'Remover' }))) return;
     frontService.remove(front.id);
     refresh();
   }
 
-  function removeProject() {
+  async function removeProject() {
     const { fronts: f, tasks: t, issues: i, decisions: d, expansions: e, milestones: m } = projectService.previewRemoval(project!.id);
     const items = [
       f && `${f} frente(s)`, t && `${t} tarefa(s)`,
@@ -362,7 +363,7 @@ export function ProjectDetailPage() {
     const detail = items.length > 0
       ? `Isto também apaga, de forma permanente:\n\n• ${items.join('\n• ')}`
       : 'Ele não tem nada vinculado.';
-    if (!confirm(`Excluir o projeto "${project!.name}"?\n\n${detail}`)) return;
+    if (!(await confirmAction(`Excluir o projeto "${project!.name}"?\n\n${detail}`))) return;
     projectService.remove(project!.id);
     navigate('/projetos');
   }
@@ -421,7 +422,7 @@ export function ProjectDetailPage() {
         <div className="flex items-baseline justify-between gap-4">
           <div>
             <Eyebrow>Progresso</Eyebrow>
-            <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+            <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
               {progress.percent}%
             </p>
           </div>
@@ -642,7 +643,7 @@ export function ProjectDetailPage() {
         {addingFront ? (
           <>
             <label>
-              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                 Nome da frente
               </span>
               <input
@@ -656,7 +657,7 @@ export function ProjectDetailPage() {
             </label>
             {isCode && (
               <label className="mt-3 block">
-                <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                   Escopo git (opcional)
                 </span>
                 <input

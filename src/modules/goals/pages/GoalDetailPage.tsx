@@ -1,23 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { goalService } from '../services/goalService';
-import { type GoalCategory } from '../types/goal';
-import { Card, ProgressBar, BackButton, Eyebrow, Button } from '../../../shared/ui';
-
-const CATEGORY_LABEL: Record<GoalCategory, string> = {
-  concurso: 'Concurso', financeiro: 'Financeiro', saude: 'Saúde',
-  pessoal: 'Pessoal', faculdade: 'Faculdade',
-};
-
-const CATEGORY_COLOR: Record<GoalCategory, string> = {
-  concurso:   'var(--hub-negative)',
-  financeiro: 'var(--hub-positive)',
-  saude:      'var(--hub-accent)',
-  pessoal:    'var(--hub-mauve)',
-  faculdade:  'var(--hub-warning)',
-};
+import { formatGoalDate } from '../components/GoalRow';
+import { goalCategoryMeta } from '../data/goalCategories';
+import { Card, ProgressBar, BackButton, Eyebrow, Button, ModuleHeader, useConfirm } from '../../../shared/ui';
 
 export function GoalDetailPage() {
+  const confirmAction = useConfirm();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [goal, setGoal] = useState(() => (id ? goalService.getById(id) : null));
@@ -31,9 +20,9 @@ export function GoalDetailPage() {
     if (updated) setGoal(updated);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!g) return;
-    if (!confirm('Excluir esta meta?')) return;
+    if (!(await confirmAction('Excluir esta meta?'))) return;
     goalService.delete(g.id);
     navigate('/metas');
   }
@@ -44,9 +33,9 @@ export function GoalDetailPage() {
     if (updated) setGoal(updated);
   }
 
-  function handleAbandon() {
+  async function handleAbandon() {
     if (!g) return;
-    if (!confirm('Marcar como abandonada?')) return;
+    if (!(await confirmAction('Marcar como abandonada?', { tone: 'neutral', confirmLabel: 'Abandonar' }))) return;
     const updated = goalService.update(g.id, { status: 'abandoned' });
     if (updated) setGoal(updated);
   }
@@ -68,36 +57,35 @@ export function GoalDetailPage() {
     );
   }
 
-  const catColor = CATEGORY_COLOR[goal.category];
+  const { label: catLabel, color: catColor } = goalCategoryMeta(goal.category);
 
   return (
     <div className="space-y-5">
-      <div className="mb-1"><BackButton /></div>
+      <ModuleHeader eyebrow="Módulo · Metas" title={goal.title} />
 
       {/* Header + progresso */}
       <Card hero>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full" style={{ background: catColor }} />
-            <span className="text-[10px] font-medium" style={{ color: catColor }}>
-              {CATEGORY_LABEL[goal.category]}
+            <span className="text-[11px] font-medium" style={{ color: catColor }}>
+              {catLabel}
             </span>
           </div>
           {goal.status !== 'active' && (
-            <span className="text-[10px] font-medium" style={{
+            <span className="text-[11px] font-medium" style={{
               color: goal.status === 'completed' ? 'var(--hub-positive)' : 'var(--hub-muted)',
             }}>
               {goal.status === 'completed' ? '✓ Concluída' : 'Abandonada'}
             </span>
           )}
         </div>
-        <h1 className="mt-1 text-xl font-medium" style={{ color: 'var(--hub-text)' }}>{goal.title}</h1>
         {goal.description && (
           <p className="mt-1 text-sm" style={{ color: 'var(--hub-muted)' }}>{goal.description}</p>
         )}
         {goal.targetDate && (
           <p className="mt-1 text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
-            Prazo: {new Date(goal.targetDate).toLocaleDateString('pt-BR')}
+            Prazo: {formatGoalDate(goal.targetDate)}
           </p>
         )}
 
@@ -133,7 +121,7 @@ export function GoalDetailPage() {
               }}
             >
               <span
-                className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-[10px] transition"
+                className="grid h-4 w-4 shrink-0 place-items-center rounded-full text-[11px] transition"
                 style={{
                   background: kr.status === 'done' ? 'color-mix(in srgb, var(--hub-positive) 20%, transparent)' : 'transparent',
                   color: kr.status === 'done' ? 'var(--hub-positive)' : 'transparent',

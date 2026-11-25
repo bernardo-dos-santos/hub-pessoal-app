@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { ModuleHeader, Card } from '../../../shared/ui';
+import { formatMonthLabel, isValidMonthKey } from '../utils/financePeriod';
 
 type CategoryEntry = { cat: string; total: number };
 type BudgetStatus  = { name: string; category: string; limit: number; spent: number; exceeded: boolean };
@@ -10,10 +11,10 @@ type MonthlySummary = {
   month: string;
   generatedAt: string;
   income: number;
-  expenses: number;     // cash-only (expense kind)
-  cardPurchases: number; // credit pool usage (informational)
-  cardPayments: number;  // invoice payments (cash outflow)
-  totalOutflow: number;
+  /** Everything consumed in the month, card purchases included (summaries since 2026-11). */
+  expenses: number;
+  /** The part of `expenses` bought on the credit card. */
+  cardPurchases: number;
   balance: number;
   savingsRate: number;
   topCategories: CategoryEntry[];
@@ -25,19 +26,18 @@ type MonthlySummary = {
 };
 
 function fmtBRL(n: number): string {
-  return Math.abs(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return Math.abs(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function fmtMonth(yyyyMM: string): string {
-  const [yr, mo] = yyyyMM.split('-');
-  return new Date(`${yr}-${mo}-15`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  return isValidMonthKey(yyyyMM) ? formatMonthLabel(yyyyMM) : yyyyMM;
 }
 
 function pctDiff(current: number, avg: number): string {
   if (avg === 0) return '';
   const diff = ((current - avg) / avg) * 100;
   const sign = diff >= 0 ? '+' : '';
-  return `${sign}${diff.toFixed(0)}% vs. média`;
+  return `${sign}${Math.round(diff).toLocaleString('pt-BR')}% vs. média`;
 }
 
 export function MonthlySummaryPage() {
@@ -47,13 +47,21 @@ export function MonthlySummaryPage() {
   const [loading, setLoading]     = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError]         = useState<string | null>(null);
+  /** The server failed to answer — not the same as "not generated yet". */
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const month = yyyyMM ?? '';
 
+  const validMonth = isValidMonthKey(month);
+
   useEffect(() => {
-    if (!month) return;
+    if (!validMonth) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
+    setLoadError(null);
     fetch(`/api/finance/monthly-summary/${month}`)
       .then((r) => {
         if (r.status === 404) return null;
@@ -61,8 +69,8 @@ export function MonthlySummaryPage() {
         return r.json() as Promise<MonthlySummary>;
       })
       .then((data) => { setSummary(data); setLoading(false); })
-      .catch((e) => { setError(e.message); setLoading(false); });
-  }, [month]);
+      .catch((e) => { setLoadError(e instanceof Error ? e.message : String(e)); setLoading(false); });
+  }, [month, validMonth]);
 
   async function handleGenerate() {
     setGenerating(true);
@@ -90,6 +98,22 @@ export function MonthlySummaryPage() {
         <div className="py-10 text-center text-sm" style={{ color: 'var(--hub-subtle)' }}>
           Carregando…
         </div>
+      </div>
+    );
+  }
+
+  if (!validMonth || loadError) {
+    return (
+      <div>
+        <ModuleHeader eyebrow="Módulo · Financeiro" title="Resumo mensal" back />
+        <Card>
+          <p className="text-sm" style={{ color: 'var(--hub-text)' }}>
+            {validMonth ? 'Não foi possível carregar o resumo.' : `"${month}" não é um mês válido.`}
+          </p>
+          {loadError ? (
+            <p className="mt-2 text-xs" style={{ color: 'var(--hub-negative)' }}>{loadError}</p>
+          ) : null}
+        </Card>
       </div>
     );
   }
@@ -127,22 +151,30 @@ export function MonthlySummaryPage() {
     <div>
       <ModuleHeader eyebrow="Módulo · Financeiro" title={fmtMonth(summary.month)} back />
 
-      <p className="mb-6 text-xs" style={{ color: 'var(--hub-subtle)' }}>
-        Gerado em {new Date(summary.generatedAt).toLocaleDateString('pt-BR')}
+      <p className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs" style={{ color: 'var(--hub-subtle)' }}>
+        <span>Gerado em {new Date(summary.generatedAt).toLocaleDateString('pt-BR')}</span>
+        {/* After recategorizing the month, the stored summary is stale. */}
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={generating}
+          className="font-medium transition-opacity hover:opacity-70 disabled:opacity-40"
+          style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          {generating ? 'Gerando…' : 'Gerar de novo'}
+        </button>
+        {error ? <span style={{ color: 'var(--hub-negative)' }}>{error}</span> : null}
       </p>
 
       <div className="space-y-5">
         <Card>
-          <p className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             Visão geral
           </p>
           <div className="space-y-2.5">
             {[
-              { label: 'Receita',       value: summary.income,        positive: true  },
-              { label: 'Gastos',        value: -summary.expenses,     positive: false },
-              ...(summary.cardPayments > 0
-                ? [{ label: 'Pgto. Fatura', value: -summary.cardPayments, positive: false }]
-                : []),
+              { label: 'Recebi', value: summary.income,    positive: true  },
+              { label: 'Gastei', value: -summary.expenses, positive: false },
             ].map(({ label, value, positive }) => (
               <div key={label} className="flex items-baseline justify-between">
                 <span className="text-sm" style={{ color: 'var(--hub-muted)' }}>{label}</span>
@@ -158,7 +190,7 @@ export function MonthlySummaryPage() {
               className="flex items-baseline justify-between pt-2"
               style={{ borderTop: '1px solid var(--hub-border)' }}
             >
-              <span className="text-sm font-medium" style={{ color: 'var(--hub-text)' }}>Saldo</span>
+              <span className="text-sm font-medium" style={{ color: 'var(--hub-text)' }}>Sobrou</span>
               <div className="text-right">
                 <span
                   className="tabular-nums text-sm font-medium"
@@ -167,7 +199,7 @@ export function MonthlySummaryPage() {
                   {summary.balance >= 0 ? '' : '-'}{fmtBRL(summary.balance)}
                 </span>
                 <span className="ml-2 tabular-nums text-xs" style={{ color: 'var(--hub-subtle)' }}>
-                  {summary.savingsRate.toFixed(1)}% poupado
+                  {summary.savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% poupado
                 </span>
               </div>
             </div>
@@ -176,18 +208,18 @@ export function MonthlySummaryPage() {
           {summary.cardPurchases > 0 && (
             <p className="mt-3 text-xs" style={{ color: 'var(--hub-subtle)' }}>
               <span className="tabular-nums">{fmtBRL(summary.cardPurchases)}</span>
-              {' '}em compras no crédito · pool separado, não deduzido do saldo
+              {' '}do gasto foi no cartão de crédito
             </p>
           )}
 
           {summary.comparison && (
             <div className="mt-4 space-y-1">
               <p className="text-xs" style={{ color: 'var(--hub-subtle)' }}>
-                vs. média de {summary.comparison.monthsCompared} mês{summary.comparison.monthsCompared !== 1 ? 'es' : ''} anteriores
+                vs. média {summary.comparison.monthsCompared === 1 ? 'do mês anterior' : `dos ${summary.comparison.monthsCompared} meses anteriores`}
               </p>
               <p className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
                 receita: {pctDiff(summary.income, summary.comparison.avgIncome)} ·{' '}
-                gastos: {pctDiff(summary.totalOutflow, summary.comparison.avgExpenses)}
+                gastos: {pctDiff(summary.expenses, summary.comparison.avgExpenses)}
               </p>
             </div>
           )}
@@ -195,7 +227,7 @@ export function MonthlySummaryPage() {
 
         {summary.topCategories.length > 0 && (
           <Card>
-            <p className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+            <p className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
               Top categorias
             </p>
             <div className="space-y-2.5">
@@ -207,7 +239,7 @@ export function MonthlySummaryPage() {
                       <span className="text-sm capitalize" style={{ color: 'var(--hub-text-body)' }}>{cat}</span>
                       <div className="flex items-baseline gap-3">
                         <span className="tabular-nums text-xs" style={{ color: 'var(--hub-subtle)' }}>
-                          {pct.toFixed(0)}%
+                          {Math.round(pct)}%
                         </span>
                         <span className="tabular-nums text-sm" style={{ color: 'var(--hub-text)' }}>
                           {fmtBRL(total)}
@@ -229,7 +261,7 @@ export function MonthlySummaryPage() {
 
         {summary.budgetStatuses.length > 0 && (
           <Card>
-            <p className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+            <p className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
               Orçamentos
             </p>
             <div className="space-y-2.5">
@@ -263,7 +295,7 @@ export function MonthlySummaryPage() {
         )}
 
         <Card>
-          <p className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             Diagnóstico
           </p>
           <p className="text-sm leading-relaxed" style={{ color: 'var(--hub-text-body)' }}>
@@ -284,7 +316,7 @@ export function MonthlySummaryPage() {
 
         {summary.recommendations.length > 0 && (
           <Card>
-            <p className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+            <p className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
               Para o próximo mês
             </p>
             <ol className="space-y-3">

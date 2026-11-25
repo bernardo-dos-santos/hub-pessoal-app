@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Link } from 'react-router-dom';
-import { Card, ModuleHeader, Select } from '../../../shared/ui';
+import { Card, ModuleHeader, Select, useConfirm } from '../../../shared/ui';
 import { getProjectTabs, projectEyebrow } from '../components/projectTabs';
 import { isViewableFile } from '../types/projectFile';
 import { frontService } from '../services/frontService';
@@ -10,7 +10,7 @@ import { projectService } from '../services/projectService';
 import { type ProjectFile } from '../types/projectFile';
 
 const LABEL_STYLE = {
-  fontSize: '10px', fontWeight: 500, textTransform: 'uppercase' as const,
+  fontSize: '11px', fontWeight: 500, textTransform: 'uppercase' as const,
   letterSpacing: '0.1em', color: 'var(--hub-subtle)',
 };
 
@@ -27,6 +27,7 @@ function formatDate(iso: string): string {
 }
 
 export function ProjectFilesPage() {
+  const confirmAction = useConfirm();
   const { projectId = '' } = useParams();
   const project = projectService.getById(projectId);
 
@@ -76,7 +77,7 @@ export function ProjectFilesPage() {
   }
 
   async function remove(file: ProjectFile) {
-    if (!confirm(`Excluir "${file.fileName}"?`)) return;
+    if (!(await confirmAction(`Excluir "${file.fileName}"?`))) return;
     try {
       await projectFileService.remove(file.id);
       await load();

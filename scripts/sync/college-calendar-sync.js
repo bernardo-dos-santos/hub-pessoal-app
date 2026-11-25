@@ -21,10 +21,11 @@
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DatabaseSync } from 'node:sqlite';
+import { openHubDb, ownerKv } from '../lib/hubDb.js';
 import { createLogger } from '../lib/logger.js';
 import { notifySyncFailure } from '../lib/notify.js';
 import { listAllEvents, insertEvent, updateEvent, deleteEvent } from '../../server/google.js';
+import { localDayKey } from '../../src/shared/dates/localDay.js';
 
 const log = createLogger('college-calendar-sync');
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -38,12 +39,6 @@ const PROP_KEY = 'hub_college_id';
 const PAST_DAYS_WINDOW = 7;
 
 const DRY_RUN = process.argv.includes('--dry-run');
-
-function readKv(db, key) {
-  const row = db.prepare('SELECT value FROM kv_store WHERE key = ?').get(key);
-  if (!row) return null;
-  try { return JSON.parse(row.value); } catch { return null; }
-}
 
 /** 'YYYY-MM-DD' a partir de uma data que pode vir com hora ('...T23:59:00'). */
 function toDateOnly(value) {
@@ -62,12 +57,12 @@ function addDays(dateStr, days) {
  * do dia na agenda, que é onde um prazo deve estar.
  */
 function collectItems(db) {
-  const subjects = readKv(db, 'college.subjects') ?? [];
+  const subjects = ownerKv(db).get('college.subjects') ?? [];
   const subjectName = (id) => subjects.find((s) => s.id === id)?.name ?? null;
-  const cutoff = addDays(new Date().toISOString().slice(0, 10), -PAST_DAYS_WINDOW);
+  const cutoff = addDays(localDayKey(), -PAST_DAYS_WINDOW);
   const items = [];
 
-  for (const a of readKv(db, 'college.assessments') ?? []) {
+  for (const a of ownerKv(db).get('college.assessments') ?? []) {
     const date = toDateOnly(a.date);
     if (!date || date < cutoff || a.status === 'missed') continue;
     const subject = subjectName(a.subjectId);
@@ -80,7 +75,7 @@ function collectItems(db) {
     });
   }
 
-  for (const t of readKv(db, 'college.tasks') ?? []) {
+  for (const t of ownerKv(db).get('college.tasks') ?? []) {
     const date = toDateOnly(t.dueDate);
     if (!date || date < cutoff || t.status === 'done' || t.status === 'canceled') continue;
     const subject = subjectName(t.subjectId);
@@ -130,7 +125,7 @@ function needsUpdate(event, item) {
 
 async function main() {
   if (!existsSync(DB_PATH)) throw new Error(`Banco não encontrado em ${DB_PATH}.`);
-  const db = new DatabaseSync(DB_PATH);
+  const db = openHubDb(DB_PATH);
   const items = collectItems(db);
   db.close();
 
@@ -162,7 +157,7 @@ async function main() {
     log.info(`remover: ${event.summary}`);
   }
 
-  log.info(`${DRY_RUN ? '[dry-run] ' : ''}${items.length} item(ns) no Hub — ${created} criado(s), ${updated} atualizado(s), ${removed} removido(s).`);
+  log.success(`${DRY_RUN ? '[dry-run] ' : ''}${items.length} item(ns) no Hub — ${created} criado(s), ${updated} atualizado(s), ${removed} removido(s).`);
 }
 
 main().catch(async (err) => {

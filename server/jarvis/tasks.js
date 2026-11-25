@@ -44,7 +44,7 @@ function notifyTaskDone(goal, text) {
     title: `Terminei: "${goal.length > 60 ? `${goal.slice(0, 60)}…` : goal}"`,
     body: text || null,
   });
-  void sendPushNotifications([{ title: 'JARVIS terminou uma tarefa', body: (text || goal).slice(0, 150), url: '/' }]).catch(() => null);
+  void sendPushNotifications([{ title: 'Íris terminou uma tarefa', body: (text || goal).slice(0, 150), url: '/' }]).catch(() => null);
 }
 
 async function runTask(taskId, goal) {

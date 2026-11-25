@@ -6,14 +6,12 @@ import { type ModuleTab } from '../../../shared/ui';
  * A faixa rola/arrasta, então cabem todas numa lista só.
  */
 export const COLLEGE_TABS: ModuleTab[] = [
-  { label: 'Painel', to: '/faculdade', end: true },
-  { label: 'Disciplinas', to: '/faculdade/disciplinas' },
+  { label: 'Resumo', to: '/faculdade', end: true },
   { label: 'Tarefas', to: '/faculdade/tarefas' },
   { label: 'Avaliações', to: '/faculdade/avaliacoes' },
   { label: 'Notas', to: '/faculdade/notas' },
+  { label: 'Disciplinas', to: '/faculdade/disciplinas' },
   { label: 'Materiais', to: '/faculdade/materiais' },
   { label: 'Estudo', to: '/faculdade/estudo' },
-  { label: 'Captura rápida', to: '/faculdade/captura' },
-  { label: 'Importar SIGAA', to: '/faculdade/sigaa' },
-  { label: 'Configurações', to: '/faculdade/configuracoes' },
+  { label: 'Configurar', to: '/faculdade/configurar' },
 ];

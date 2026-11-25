@@ -41,11 +41,23 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+        <!-- Self-update: PackageInstaller status + "Hub atualizado" after MY_PACKAGE_REPLACED (InstallStatusReceiver). -->
+        <receiver android:name=".InstallStatusReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <!-- Push (FCM): small icon in the status bar must be a white silhouette, or Android shows a grey square. -->
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon" android:resource="@drawable/ic_stat_hub" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_color" android:resource="@color/hub_notification" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="hub" />
     </application>
 
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Self-update (AppUpdatePlugin): hand the downloaded APK to the system installer. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Modo voz do Jarvis. Sem RECORD_AUDIO declarado aqui o Android nem chega a
          exibir o diálogo de permissão: o getUserMedia do WebView falha direto, sem

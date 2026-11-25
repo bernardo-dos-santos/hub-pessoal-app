@@ -4,13 +4,11 @@ import { studyProgressService } from '../services/studyProgressService';
 import { sessionCompletionService } from '../services/sessionCompletionService';
 import { jarvisCheckInService } from '../services/jarvisCheckInService';
 import { weeklyPlanService } from '../../planner/services/weeklyPlanService';
-import { CBMSC_SUBJECTS } from '../data/cbmscSubjects';
-import { ABIN_SUBJECTS } from '../data/abinSubjects';
-
-const ALL_CONCURSO_SUBJECTS = [...CBMSC_SUBJECTS, ...ABIN_SUBJECTS];
+import { subjectService } from '../../college/services/subjectService';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 export const studyAlertProvider: AlertProvider = {
@@ -25,7 +23,7 @@ export const studyAlertProvider: AlertProvider = {
     const studiedYesterday = recentLog.some((e) => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      return e.date === yesterday.toISOString().slice(0, 10);
+      return e.date === localDayKey(yesterday);
     });
 
     if (streak >= 3 && studiedYesterday && !studiedToday) {
@@ -40,9 +38,13 @@ export const studyAlertProvider: AlertProvider = {
       });
     }
 
+    // Nudges about the weekly plan only while it's being followed — a plan
+    // generated every week that nobody opens isn't something to remind about.
+    const planInUse = sessionCompletionService.isPlanInUse();
+
     // ── Sessões de hoje não marcadas (a partir das 20h) ───────────────────────
     const hour = new Date().getHours();
-    if (hour >= 20) {
+    if (planInUse && hour >= 20) {
       const todaySessions = sessionCompletionService.getTodaySessions();
       const weekOf = sessionCompletionService.getCurrentWeekOf();
       if (weekOf && todaySessions.length > 0) {
@@ -64,7 +66,7 @@ export const studyAlertProvider: AlertProvider = {
 
     // ── Taxa de conclusão semanal baixa (qui/sex) ────────────────────────────
     const dayOfWeek = new Date().getDay(); // 0=dom, 4=qui, 5=sex
-    if (dayOfWeek === 4 || dayOfWeek === 5) {
+    if (planInUse && (dayOfWeek === 4 || dayOfWeek === 5)) {
       const weekOf = sessionCompletionService.getCurrentWeekOf();
       if (weekOf) {
         const plan = weeklyPlanService.getCurrentPlan();
@@ -89,7 +91,8 @@ export const studyAlertProvider: AlertProvider = {
     }
 
     // ── Mastery crítico ───────────────────────────────────────────────────────
-    const masteries = studyProgressService.getMasteriesForTags(ALL_CONCURSO_SUBJECTS);
+    const activeTags = subjectService.listActiveSubjects().map((s) => s.name);
+    const masteries = studyProgressService.getMasteriesForTags(activeTags);
     const critical = masteries.filter((m) => m.score > 0 && m.score < 30);
     for (const m of critical.slice(0, 2)) {
       alerts.push({

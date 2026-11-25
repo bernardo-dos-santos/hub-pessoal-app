@@ -1,3 +1,5 @@
+import { localDayKey } from '../../../shared/dates/localDay';
+
 export function getCurrentSemester(date = new Date()) {
   const year = date.getFullYear();
   const semester = date.getMonth() < 6 ? 1 : 2;
@@ -10,7 +12,7 @@ export function isIsoDate(value?: string) {
 }
 
 export function todayKey(date = new Date()) {
-  return date.toISOString().slice(0, 10);
+  return localDayKey(date);
 }
 
 export function addDays(dateKey: string, days: number) {

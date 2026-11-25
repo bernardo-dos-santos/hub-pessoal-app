@@ -48,7 +48,7 @@ export function RpgDiceRoller() {
     <div className="space-y-5">
       {/* Seletor de dado */}
       <div>
-        <p className="mb-2 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Tipo de dado</p>
+        <p className="mb-2 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Tipo de dado</p>
         <div className="flex flex-wrap gap-1">
           {DICE_TYPES.map((d) => (
             <button
@@ -65,7 +65,7 @@ export function RpgDiceRoller() {
 
       {/* Modificador */}
       <div className="flex items-center gap-3">
-        <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Modificador</p>
+        <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Modificador</p>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setModifier((m) => m - 1)}
@@ -114,7 +114,7 @@ export function RpgDiceRoller() {
         <div className="py-3 text-center" style={{ borderTop: '1px solid var(--hub-border)', borderBottom: '1px solid var(--hub-border)' }}>
           {isCritical && <p className="mb-1 text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--hub-warning)' }}>Crítico!</p>}
           {isFumble && <p className="mb-1 text-xs font-medium uppercase tracking-widest" style={{ color: 'var(--hub-negative)' }}>Fumble!</p>}
-          <p className="text-4xl tabular-nums" style={{ fontWeight: 300, letterSpacing: '-0.02em', color: resultColor }}>
+          <p className="text-4xl tabular-nums" style={{ fontWeight: 400, letterSpacing: '-0.02em', color: resultColor }}>
             {lastRoll.total}
           </p>
           <p className="mt-1 text-xs tabular-nums" style={{ color: 'var(--hub-muted)' }}>
@@ -127,13 +127,13 @@ export function RpgDiceRoller() {
       {/* Histórico da sessão (só em memória) */}
       {history.length > 1 && (
         <div>
-          <p className="mb-1.5 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Histórico desta sessão</p>
+          <p className="mb-1.5 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Histórico desta sessão</p>
           <div>
             {history.slice(1).map((r, i) => (
               <div key={i} className="flex items-center justify-between py-1.5" style={{ borderBottom: '1px solid var(--hub-border)' }}>
                 <span className="text-xs tabular-nums" style={{ color: 'var(--hub-muted)' }}>d{r.die}{r.modifier !== 0 ? ` ${r.modifier >= 0 ? '+' : ''}${r.modifier}` : ''}</span>
                 <span className="text-sm font-medium tabular-nums" style={{ color: 'var(--hub-text)' }}>{r.total}</span>
-                <span className="text-[10px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{r.timestamp}</span>
+                <span className="text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{r.timestamp}</span>
               </div>
             ))}
           </div>

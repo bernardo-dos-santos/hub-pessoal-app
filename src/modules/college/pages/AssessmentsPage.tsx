@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, DateInput } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { EmptyCollegeState } from '../components/EmptyCollegeState';
 import { assessmentService } from '../services/assessmentService';
@@ -159,7 +159,7 @@ export function AssessmentsPage() {
             </Field>
             <div className="grid gap-5 sm:grid-cols-3">
               <Field label="Data">
-                <input className={inputClass} type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} />
+                <DateInput className="w-full" value={draft.date} onChange={(date) => setDraft({ ...draft, date })} ariaLabel="Data da avaliação" />
               </Field>
               <Field label="Tipo">
                 <Select className={selectClass} value={draft.type} onChange={(value) => setDraft({ ...draft, type: value as Assessment['type'] })}>
@@ -205,7 +205,7 @@ export function AssessmentsPage() {
         <div className="grid gap-5">
           <Card>
             <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Status</span>
+              <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Status</span>
               <div className="flex flex-wrap gap-1">
                 {assessmentStatusFilters.map((filter) => (
                   <button
@@ -234,7 +234,7 @@ export function AssessmentsPage() {
                 </Select>
               </Field>
               <div className="grid gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Origem</span>
+                <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Origem</span>
                 <div className="flex flex-wrap gap-1">
                   {sourceFilters.map((filter) => (
                     <button
@@ -337,7 +337,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}

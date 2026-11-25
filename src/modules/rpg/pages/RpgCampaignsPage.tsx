@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, ModuleHeader, Select } from '../../../shared/ui';
+import { Card, ModuleHeader, Select, useConfirm } from '../../../shared/ui';
 import { getRpgTabs } from '../components/rpgTabs';
 import { rpgCampaignService } from '../services/rpgCampaignService';
 import { type RpgCampaign, type RpgCampaignStatus } from '../types/rpg';
@@ -13,8 +13,9 @@ type CampaignDraft = {
   notes: string;
 };
 
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
-const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-pointer appearance-none';
+// Layout only — the base layer in global.css already styles bare inputs.
+const inputClass = 'w-full text-sm';
+const selectClass = 'w-full text-sm';
 
 const statusLabel: Record<RpgCampaignStatus, string> = {
   active: 'Ativa',
@@ -37,6 +38,7 @@ function draftFromCampaign(campaign: RpgCampaign): CampaignDraft {
 }
 
 export function RpgCampaignsPage() {
+  const confirmAction = useConfirm();
   const [campaigns, setCampaigns] = useState(() => rpgCampaignService.list());
   const [draft, setDraft] = useState<CampaignDraft>(() => emptyDraft());
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -80,8 +82,8 @@ export function RpgCampaignsPage() {
     }
   }
 
-  function handleDelete(campaign: RpgCampaign) {
-    if (!window.confirm(`Excluir a campanha "${campaign.name}"?`)) {
+  async function handleDelete(campaign: RpgCampaign) {
+    if (!(await confirmAction(`Excluir a campanha "${campaign.name}"?`))) {
       return;
     }
 
@@ -102,7 +104,7 @@ export function RpgCampaignsPage() {
 
       <Card className="mb-5">
         <form onSubmit={handleSubmit} className="grid gap-4">
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             {editingId ? 'Editar campanha' : 'Criar campanha'}
           </p>
 
@@ -163,7 +165,7 @@ export function RpgCampaignsPage() {
       </Card>
 
       <Card>
-        <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}>
+        <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}>
           Suas campanhas
         </p>
         {campaigns.length === 0 ? (
@@ -184,7 +186,7 @@ export function RpgCampaignsPage() {
                       {[campaign.system, campaign.gm ? `Mestre: ${campaign.gm}` : null].filter(Boolean).join(' · ') || 'Sem detalhes'}
                     </p>
                   </Link>
-                  <span style={{ fontSize: '10px', color: campaign.status === 'active' ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
+                  <span style={{ fontSize: '11px', color: campaign.status === 'active' ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
                     {statusLabel[campaign.status]}
                   </span>
                 </div>
@@ -212,7 +214,7 @@ export function RpgCampaignsPage() {
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

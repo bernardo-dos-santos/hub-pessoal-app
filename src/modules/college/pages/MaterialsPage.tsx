@@ -342,7 +342,7 @@ export function MaterialsPage() {
               </div>
               {bulkDrafts.length > 0 && (
                 <div className="grid gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                  <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                     {bulkDrafts.length} arquivo{bulkDrafts.length === 1 ? '' : 's'} selecionado{bulkDrafts.length === 1 ? '' : 's'}
                   </span>
                   <div className="max-h-56 overflow-y-auto">
@@ -560,7 +560,7 @@ export function MaterialsPage() {
                   ) : null}
                   {material.attachments?.length ? (
                     <div className="mt-3 grid gap-1" style={{ borderLeft: '2px solid var(--hub-accent)', paddingLeft: '10px' }}>
-                      <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                      <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                         Anexos locais
                       </span>
                       {material.attachments.map((attachment, ai) => (
@@ -603,7 +603,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}

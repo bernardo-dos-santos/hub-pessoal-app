@@ -195,7 +195,7 @@ assert.equal(isTaskDueSoon({ dueDate: "2026-01-01", status: "todo" }, "2026-08-1
 
 // ─── Marcos ───────────────────────────────────────────────────────────────────
 
-const marco = projectMilestoneService.create({ projectId: code.id, title: "Arco 1 encerrado", targetDate: "2026-09-30" });
+const marco = projectMilestoneService.create({ projectId: code.id, title: "Arco 1 encerrado", targetDate: "2099-09-30" });
 const semData = projectMilestoneService.create({ projectId: code.id, title: "Sem data" });
 const vencido = projectMilestoneService.create({ projectId: code.id, title: "Vencido", targetDate: "2020-01-01" });
 
@@ -231,7 +231,7 @@ assert.equal(
   "Marco atingido não deve mais contar como vencido, mesmo com data no passado",
 );
 
-projectMilestoneService.update(marco.id, { targetDate: "2026-12-31" });
+projectMilestoneService.update(marco.id, { targetDate: "2099-12-31" });
 assert.equal(
   eventsFor(code.id, marco.id).filter((e) => e.kind === "due_moved").length,
   1,
@@ -257,7 +257,7 @@ assert.equal(
 );
 assert.equal(
   expansionCategoryLabel("jarvis"),
-  "Jarvis & Automação",
+  "Íris & Automação",
   "Slug antigo deve continuar exibindo o rótulo por extenso",
 );
 assert.equal(
@@ -561,9 +561,9 @@ assert.equal(
   "O endpoint de download precisa aceitar ?inline=1",
 );
 assert.equal(
-  /disposition\s*=\s*req\.query\.inline === '1' \? 'inline' : 'attachment'/.test(serverSource),
+  /disposition\s*=\s*req\.query\.inline === '1' && isSafeInline\(file\.mime_type\) \? 'inline' : 'attachment'/.test(serverSource),
   true,
-  "attachment tem de continuar sendo o padrão, para o botão baixar seguir baixando",
+  "attachment tem de continuar sendo o padrão (e o único destino de tipo executável como html/svg)",
 );
 assert.equal(serverSource.includes("/pdf-info"), true, "Rota de metadados do PDF deve existir");
 assert.equal(

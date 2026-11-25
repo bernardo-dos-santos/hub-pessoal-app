@@ -1,4 +1,5 @@
 import { Children, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
+import { hub, tint } from './tokens';
 
 type SelectOptionProps = {
   value: string;
@@ -30,12 +31,14 @@ type SelectProps = {
   disabled?: boolean;
   id?: string;
   'aria-label'?: string;
+  /** `inline` sits inside a line of text (a list row's meta): small, no underline until hover/open. */
+  variant?: 'field' | 'inline';
 };
 
 /**
  * Substitui o `<select>` nativo em todo o hub: o dropdown nativo do Windows
  * ignora o design system (aparência "Windows XP" ao abrir a lista), então o
- * painel de opções aqui é um flutuante Terracota (mesmo tratamento de sombra
+ * painel de opções aqui é um flutuante do design system (mesmo tratamento de sombra
  * e superfície dos outros menus/popovers do app).
  * API espelha `<select>`/`<option>` pra migração ser um find-and-replace.
  *
@@ -54,7 +57,9 @@ export function Select({
   disabled = false,
   id,
   'aria-label': ariaLabel,
+  variant = 'field',
 }: SelectProps) {
+  const inline = variant === 'inline';
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const options = extractOptions(children);
@@ -98,11 +103,13 @@ export function Select({
             setOpen(false);
           }
         }}
-        className="flex w-full items-center justify-between gap-2 pb-1.5 text-sm outline-none transition-colors"
+        className={inline ? 'inline-flex max-w-full items-center gap-1 text-xs outline-none' : 'flex w-full items-center justify-between gap-2 pb-1.5 text-sm outline-none transition-colors'}
         style={{
           background: 'transparent',
-          borderBottom: `1px solid ${open ? 'var(--hub-primary)' : 'var(--hub-border-strong)'}`,
-          color: current ? 'var(--hub-text)' : 'var(--hub-disabled)',
+          borderBottom: inline
+            ? `1px dashed ${open ? 'var(--hub-primary)' : 'var(--hub-border-strong)'}`
+            : `1px solid ${open ? 'var(--hub-primary)' : 'var(--hub-border-strong)'}`,
+          color: inline ? 'var(--hub-subtle)' : current ? 'var(--hub-text)' : 'var(--hub-disabled)',
           cursor: disabled ? 'default' : 'pointer',
           opacity: disabled ? 0.6 : 1,
         }}
@@ -111,7 +118,7 @@ export function Select({
         <span
           style={{
             color: 'var(--hub-subtle)',
-            fontSize: '10px',
+            fontSize: '11px',
             transform: open ? 'rotate(180deg)' : undefined,
             transition: 'transform 0.15s',
             flexShrink: 0,
@@ -124,11 +131,11 @@ export function Select({
       {open && (
         <div
           role="listbox"
-          className="hub-select-panel absolute left-0 right-0 z-50 mt-1.5 max-h-60 overflow-y-auto py-1"
+          className="hub-select-panel absolute left-0 z-50 mt-1.5 max-h-60 min-w-full w-max max-w-[min(20rem,90vw)] overflow-y-auto py-1"
           style={{
             background: 'var(--hub-card)',
             border: '1px solid var(--hub-border-strong)',
-            borderRadius: '10px',
+            borderRadius: 'var(--hub-radius-card)',
             boxShadow: 'var(--hub-shadow-menu)',
           }}
         >
@@ -145,7 +152,7 @@ export function Select({
               className={`hub-select-option truncate px-3 py-2 text-sm ${opt.value === value ? 'active' : ''}`}
               style={{
                 color: opt.value === value ? 'var(--hub-primary-strong)' : 'var(--hub-text-body)',
-                background: opt.value === value ? 'rgba(193, 99, 61, 0.1)' : 'transparent',
+                background: opt.value === value ? tint(hub.accent, 10) : 'transparent',
                 fontWeight: opt.value === value ? 500 : 400,
                 cursor: opt.disabled ? 'default' : 'pointer',
                 opacity: opt.disabled ? 0.4 : 1,

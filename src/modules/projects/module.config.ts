@@ -10,7 +10,6 @@ export const projectsModuleConfig: ModuleDefinition = {
   status: 'active',
   accent: 'bg-orange-600',
   order: 70,
-  showInHome: true,
   category: 'productivity',
   supportsSearch: false,
   supportsAiSummary: false,

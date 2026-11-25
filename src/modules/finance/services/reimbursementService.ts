@@ -68,6 +68,8 @@ function isNeutralKind(kind: Transaction['kind']) {
 function isEligibleRefund(transaction: Transaction) {
   return (
     !isMatchedReimbursement(transaction) &&
+    // Someone said "this refund has no pair" (or undid its pair): don't pair it again.
+    transaction.reimbursementStatus !== 'ignored' &&
     transaction.amount > 0 &&
     isRefundDescription(transaction.description) &&
     !isNeutralCategory(transaction.category) &&
@@ -274,6 +276,10 @@ export const reimbursementService = {
     return [...detection.unmatchedRefunds, ...detection.ambiguousRefunds];
   },
 
+  /**
+   * Splits a pair. The refund is marked 'ignored' so the next import doesn't pair
+   * it right back; both lines count again (the refund lowering what was spent).
+   */
   unpairReimbursementPair(pairId: string) {
     const transactions = transactionService.listTransactions();
     const hasPair = transactions.some((transaction) => transaction.reimbursementPairId === pairId);
@@ -289,7 +295,7 @@ export const reimbursementService = {
               ...transaction,
               reimbursementPairId: undefined,
               reimbursementRole: undefined,
-              reimbursementStatus: undefined,
+              reimbursementStatus: transaction.reimbursementRole === 'refund' ? 'ignored' as const : undefined,
               reimbursementMatchedAt: undefined,
               updatedAt: new Date().toISOString(),
             }
@@ -298,11 +304,53 @@ export const reimbursementService = {
     );
     return true;
   },
+
+  /** Pairs a refund with the purchase the person picked — for what detection couldn't decide. */
+  pairManually(originalId: string, refundId: string) {
+    const transactions = transactionService.listTransactions();
+    const original = transactions.find((transaction) => transaction.id === originalId);
+    const refund = transactions.find((transaction) => transaction.id === refundId);
+    if (!original || !refund) return false;
+    transactionService.replaceTransactions(
+      applyPair(transactions, { original, refund, reason: 'Pareado à mão.' }, new Date().toISOString()),
+    );
+    return true;
+  },
+
+  /** "Não tem par": the refund stays as it is (lowering what was spent) and leaves the list. */
+  ignoreRefund(refundId: string) {
+    const transactions = transactionService.listTransactions();
+    if (!transactions.some((transaction) => transaction.id === refundId)) return false;
+    transactionService.replaceTransactions(
+      transactions.map((transaction) =>
+        transaction.id === refundId
+          ? { ...transaction, reimbursementStatus: 'ignored' as const, updatedAt: new Date().toISOString() }
+          : transaction,
+      ),
+    );
+    return true;
+  },
+
+  /**
+   * Purchases a refund may undo: the ambiguous ones detection found, else
+   * purchases of the same amount in the 60 days before it.
+   */
+  suggestOriginals(candidate: ReimbursementRefundCandidate): Transaction[] {
+    const transactions = transactionService.listTransactions();
+    if (candidate.possibleOriginalIds.length > 0) {
+      const ids = new Set(candidate.possibleOriginalIds);
+      return transactions.filter((transaction) => ids.has(transaction.id));
+    }
+    const cents = absoluteCents(candidate.refund.amount);
+    return transactions
+      .filter((transaction) =>
+        transaction.amount < 0
+        && !isMatchedReimbursement(transaction)
+        && absoluteCents(transaction.amount) === cents
+        && transaction.date <= candidate.refund.date
+        && daysBetween(transaction.date, candidate.refund.date) <= 60)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 5);
+  },
 };
 
-export const {
-  applyReimbursementPairs,
-  listReimbursementPairs,
-  listUnmatchedRefundCandidates,
-  unpairReimbursementPair,
-} = reimbursementService;

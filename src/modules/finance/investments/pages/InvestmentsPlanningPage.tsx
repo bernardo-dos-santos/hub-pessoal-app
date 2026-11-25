@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { ModuleHeader, Card, Select } from '../../../../shared/ui';
+import { useRef, useState } from 'react';
+import { ModuleHeader, Card, Select, DateInput, useConfirm } from '../../../../shared/ui';
+import { parseMoneyText } from '../../utils/moneyParsing';
 import { getFinanceTabs } from '../../components/financeTabs';
 import { investmentService, type InvestmentInput } from '../services/investmentService';
-import { syncInvestmentsFromPluggy, type PluggyInvestmentSyncResult } from '../services/pluggyInvestmentSyncService';
 import { allocationService } from '../services/allocationService';
 import { reserveService } from '../services/reserveService';
 import { contributionPlanService } from '../services/contributionPlanService';
@@ -21,8 +21,11 @@ import {
   BUCKET_LABEL,
   SLEEVE_LABEL,
 } from '../types/investment';
-import { formatCurrency } from '../../utils/financeFormatters';
+import { formatCurrency, formatDate } from '../../utils/financeFormatters';
 import { formatMonthLabel, getCurrentMonthKey } from '../../utils/financePeriod';
+import { localDayKey } from '../../../../shared/dates/localDay';
+import { aiConfig } from '../../../../core/ai/aiConfig';
+import { transactionMonthKey } from '../../utils/financeCalculations';
 
 const ASSET_TYPES = Object.entries(ASSET_TYPE_LABEL) as [InvestmentAssetType, string][];
 const BUCKETS = Object.entries(BUCKET_LABEL) as [InvestmentBucket, string][];
@@ -37,8 +40,16 @@ const typeColor: Record<InvestmentAssetType, string> = {
   other:        'var(--hub-subtle)',
 };
 
+const decimal = (value: number, digits: number) =>
+  value.toLocaleString('pt-BR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
 function formatPct(value: number): string {
-  return (value >= 0 ? '+' : '') + value.toFixed(2) + '%';
+  return (value >= 0 ? '+' : '') + decimal(value, 2) + '%';
+}
+
+/** Money typed by a person: "1.200", "1.200,50", "1200.5" — null when unreadable. */
+function readMoney(text: string): number | null {
+  return text.trim() === '' ? null : parseMoneyText(text);
 }
 
 const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
@@ -47,7 +58,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 const labelStyle: React.CSSProperties = {
   display: 'block',
   marginBottom: '6px',
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
@@ -64,6 +75,8 @@ type FormState = Omit<
   sleeve: AllocationSleeve;
   currency: AssetCurrency;
   contractedRate: string;
+  /** Only on creation of a foreign asset: the day's rate for the opening balance. */
+  openingExchangeRate: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -78,12 +91,17 @@ const emptyForm = (): FormState => ({
   currency: 'BRL',
   maturityDate: '',
   contractedRate: '',
+  openingExchangeRate: '',
 });
 
-type PluggySyncState = 'idle' | 'loading' | 'done' | 'empty' | 'error';
 
 export function InvestmentsPlanningPage() {
-  const pendingReviewCount = transactionService.listRequiredReviewTransactions().length;
+  const pendingReviewCount = transactionService.listCurrentMonthReviewTransactions().length;
+  const confirmAction = useConfirm();
+  const savingRef = useRef(false);
+  const [formError, setFormError] = useState('');
+  const [movementError, setMovementError] = useState('');
+  const [pageError, setPageError] = useState('');
   const [investments, setInvestments] = useState(() => investmentService.listInvestments());
   const [goal, setGoal] = useState(() => investmentService.getMonthlyGoal());
   const [showForm, setShowForm] = useState(false);
@@ -91,8 +109,6 @@ export function InvestmentsPlanningPage() {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [goalInput, setGoalInput] = useState(goal ? String(goal.targetAmount) : '');
   const [editingGoal, setEditingGoal] = useState(false);
-  const [pluggySyncState, setPluggySyncState] = useState<PluggySyncState>('idle');
-  const [pluggySyncResult, setPluggySyncResult] = useState<PluggyInvestmentSyncResult | null>(null);
   const currentMonth = getCurrentMonthKey();
   const [analysis, setAnalysis] = useState<InvestmentAnalysis | null>(
     () => aiInvestmentAnalysisService.getCachedAnalysis(currentMonth),
@@ -106,6 +122,13 @@ export function InvestmentsPlanningPage() {
   const reserve = reserveService.calculateReserveStatus(investments);
   const plan = contributionPlanService.suggestContributionPlan(investments, goal?.targetAmount ?? 0);
   const nextContribution = plan.portfolioSuggestion;
+  // What went in this (financial) month, net of withdrawals — the hero's question
+  // is "quanto ainda falta aportar este mês?".
+  const contributedThisMonth = investmentMovementService
+    .listMovements()
+    .filter((movement) => movement.type !== 'valuation' && transactionMonthKey(movement) === currentMonth)
+    .reduce((sum, movement) => sum + (movement.type === 'contribution' ? movement.amount : -movement.amount), 0);
+  const missingThisMonth = goal ? Math.max(0, goal.targetAmount - contributedThisMonth) : null;
   const [reserveMonthsInput, setReserveMonthsInput] = useState(String(reserve.targetMonths));
   const [editingReserve, setEditingReserve] = useState(false);
   const [reserveDeadline, setReserveDeadlineState] = useState(() => reserveService.getReserveDeadline());
@@ -113,6 +136,11 @@ export function InvestmentsPlanningPage() {
   const [editingDeadline, setEditingDeadline] = useState(false);
 
   const [editingTarget, setEditingTarget] = useState(false);
+  // On a phone the page ran to six screens: the allocation table starts folded
+  // there (its one-line answer stays visible), open on wider screens.
+  const [allocationOpen, setAllocationOpen] = useState(
+    () => typeof window === 'undefined' || !window.matchMedia?.('(max-width: 639px)').matches,
+  );
   const [targetDraft, setTargetDraft] = useState<Record<string, string>>(() =>
     Object.fromEntries(Object.entries(allocationService.getTargetAllocation()).map(([k, v]) => [k, String(v)])),
   );
@@ -135,7 +163,7 @@ export function InvestmentsPlanningPage() {
   const [movementsFor, setMovementsFor] = useState<Investment | null>(null);
   const [movementForm, setMovementForm] = useState({
     type: 'contribution' as InvestmentMovementType,
-    date: new Date().toISOString().slice(0, 10),
+    date: localDayKey(),
     amount: '',
     exchangeRate: '',
     note: '',
@@ -145,7 +173,7 @@ export function InvestmentsPlanningPage() {
     setMovementsFor(investment);
     setMovementForm({
       type: 'contribution',
-      date: new Date().toISOString().slice(0, 10),
+      date: localDayKey(),
       amount: '',
       exchangeRate: '',
       note: '',
@@ -154,21 +182,28 @@ export function InvestmentsPlanningPage() {
 
   function handleSaveMovement() {
     if (!movementsFor) return;
-    const amount = parseFloat(movementForm.amount);
-    if (!amount || amount <= 0) return;
+    const amount = readMoney(movementForm.amount);
+    if (!amount || amount <= 0) return setMovementError('Informe um valor maior que zero.');
 
     const isForeign = (movementsFor.currency ?? 'BRL') !== 'BRL';
-    const exchangeRate = parseFloat(movementForm.exchangeRate);
+    const exchangeRate = readMoney(movementForm.exchangeRate);
     // Ativo em moeda estrangeira sem câmbio informado não pode ser convertido —
     // gravar sem a cotação do dia deixaria o histórico em real errado pra sempre.
-    if (isForeign && (!exchangeRate || exchangeRate <= 0)) return;
+    if (isForeign && (!exchangeRate || exchangeRate <= 0)) return setMovementError('Informe o dólar no dia (R$).');
+    if (movementForm.type === 'withdrawal') {
+      const balance = investmentMovementService.getPosition(movementsFor.id).currentValueInAssetCurrency;
+      if (amount > balance + 0.005) {
+        return setMovementError(`O resgate passa do saldo do ativo (${isForeign ? 'US$ ' + decimal(balance, 2) : formatCurrency(balance)}).`);
+      }
+    }
+    setMovementError('');
 
     investmentService.addMovement({
       investmentId: movementsFor.id,
       type: movementForm.type,
       date: movementForm.date,
       amount,
-      exchangeRate: isForeign ? exchangeRate : undefined,
+      exchangeRate: isForeign ? exchangeRate ?? undefined : undefined,
       note: movementForm.note.trim() || undefined,
       source: 'manual',
     });
@@ -180,8 +215,9 @@ export function InvestmentsPlanningPage() {
   }
 
   function saveReserveTarget() {
-    const months = parseInt(reserveMonthsInput, 10);
-    if (!months || months <= 0) return;
+    const months = Number(reserveMonthsInput);
+    if (!Number.isInteger(months) || months <= 0) return setPageError('A meta da reserva é um número inteiro de meses.');
+    setPageError('');
     reserveService.setReserveTargetMonths(months);
     setEditingReserve(false);
     refresh();
@@ -222,20 +258,9 @@ export function InvestmentsPlanningPage() {
     }
   }
 
-  async function handleSyncPluggy() {
-    setPluggySyncState('loading');
-    try {
-      const result = await syncInvestmentsFromPluggy();
-      setPluggySyncResult(result);
-      setPluggySyncState(result.total === 0 ? 'empty' : 'done');
-      refresh();
-    } catch {
-      setPluggySyncState('error');
-    }
-  }
-
   function openAdd() {
     setEditId(null);
+    setFormError('');
     setForm(emptyForm());
     setShowForm(true);
   }
@@ -254,17 +279,26 @@ export function InvestmentsPlanningPage() {
       currency: inv.currency ?? 'BRL',
       maturityDate: inv.maturityDate ?? '',
       contractedRate: inv.contractedRate !== undefined ? String(inv.contractedRate) : '',
+      openingExchangeRate: '',
     });
+    setFormError('');
     setShowForm(true);
   }
 
   function handleSave() {
+    // Two quick clicks used to create the asset twice.
+    if (savingRef.current) return;
+    const currentValue = readMoney(form.currentValue) ?? 0;
+    const totalInvested = readMoney(form.totalInvested) ?? 0;
+    if (Number.isNaN(currentValue) || Number.isNaN(totalInvested) || currentValue < 0 || totalInvested < 0) {
+      return setFormError('Valores inválidos — use 1.200 ou 1200,50.');
+    }
     const input: InvestmentInput = {
       name:          form.name.trim(),
       type:          form.type,
       institution:   form.institution.trim(),
-      currentValue:  parseFloat(form.currentValue) || 0,
-      totalInvested: parseFloat(form.totalInvested) || 0,
+      currentValue,
+      totalInvested,
       notes:         form.notes?.trim() || undefined,
       bucket:        form.bucket,
       // Fatia só faz sentido na carteira — reserva não entra na alocação alvo.
@@ -274,21 +308,43 @@ export function InvestmentsPlanningPage() {
       maturityDate:     form.type === 'treasury' && form.maturityDate ? form.maturityDate : undefined,
       contractedRate:   form.type === 'treasury' && form.contractedRate ? parseFloat(form.contractedRate) || undefined : undefined,
     };
-    if (!input.name) return;
-    if (editId) investmentService.update(editId, input);
-    else investmentService.create(input);
-    setShowForm(false);
+    if (!input.name) return setFormError('Dê um nome ao investimento.');
+    savingRef.current = true;
+    try {
+      if (editId) investmentService.edit(editId, input);
+      else investmentService.create(input, readMoney(form.openingExchangeRate) ?? undefined);
+      setShowForm(false);
+      setFormError('');
+      refresh();
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Não foi possível salvar.');
+    } finally {
+      savingRef.current = false;
+    }
+  }
+
+  async function handleDelete(investment: Investment) {
+    const count = investmentMovementService.listByInvestment(investment.id).length;
+    const ok = await confirmAction(
+      `Excluir "${investment.name}"?\n\n${count} movimento(s) do histórico também serão apagados.`,
+    );
+    if (!ok) return;
+    investmentService.delete(investment.id);
     refresh();
   }
 
-  function handleDelete(id: string) {
-    investmentService.delete(id);
+  async function handleDeleteMovement(movementId: string, investmentId: string) {
+    if (!(await confirmAction('Excluir este movimento?\n\nO valor do ativo é recalculado sem ele.'))) return;
+    investmentMovementService.remove(movementId);
+    investmentService.recalculateFromMovements(investmentId);
+    setMovementsFor(investmentService.getById(investmentId));
     refresh();
   }
 
   function saveGoal() {
-    const amount = parseFloat(goalInput);
-    if (!amount || amount <= 0) return;
+    const amount = readMoney(goalInput);
+    if (!amount || amount <= 0) return setPageError('Informe a meta de aporte como um valor, ex.: 1.000.');
+    setPageError('');
     investmentService.setMonthlyGoal({ targetAmount: amount });
     setGoal({ targetAmount: amount });
     setEditingGoal(false);
@@ -300,27 +356,99 @@ export function InvestmentsPlanningPage() {
     <div>
       <ModuleHeader eyebrow="Módulo · Financeiro" title="Investimentos" tabs={getFinanceTabs(pendingReviewCount)} />
 
-      <Card className="mb-5">
-        <div className="flex flex-wrap gap-x-8 gap-y-4">
-          <InlineStat label="Patrimônio" value={formatCurrency(totals.patrimonio)} />
-          <InlineStat label="Total investido" value={formatCurrency(totals.investido)} />
-          <InlineStat label="Rendimento" value={formatCurrency(totals.rendimento)} color={rendColor} />
-          <InlineStat label="Rentabilidade" value={formatPct(totals.rentabilidade)} color={rendColor} />
-        </div>
-        <div
-          className="mt-4 flex flex-wrap gap-x-8 gap-y-3"
-          style={{ paddingTop: '14px', borderTop: '1px solid var(--hub-border)' }}
-        >
-          <InlineStat label="Reserva" value={formatCurrency(bucketTotals.reserva)} small />
-          <InlineStat label="Carteira" value={formatCurrency(bucketTotals.carteira)} small />
-        </div>
+      {pageError && (
+        <p className="mb-4 text-sm" style={{ color: 'var(--hub-negative)' }}>{pageError}</p>
+      )}
+
+      {/* The answer first: how much is still to invest this month, and where it goes. */}
+      <Card hero className="mb-5">
+        {investments.length === 0 ? (
+          <>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '10px' }}>
+              Carteira
+            </p>
+            <p style={{ fontSize: '20px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+              Nenhum ativo cadastrado ainda
+            </p>
+            <p className="mt-2 text-sm leading-6" style={{ color: 'var(--hub-muted)' }}>
+              Cadastre a reserva e o que você já tem investido para ver o patrimônio, a reserva em meses de gasto e para onde vai cada aporte.
+            </p>
+            <button
+              type="button"
+              onClick={openAdd}
+              className="mt-4 text-sm font-medium transition-opacity hover:opacity-70"
+              style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+            >
+              + Cadastrar o primeiro ativo
+            </button>
+          </>
+        ) : (
+          <>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '10px' }}>
+              {missingThisMonth === null ? 'Patrimônio' : `Aporte de ${formatMonthLabel(currentMonth)}`}
+            </p>
+            <p
+              className="leading-none tabular-nums"
+              style={{
+                fontSize: 'clamp(34px, 10vw, 52px)',
+                fontWeight: 400,
+                letterSpacing: '-0.03em',
+                color: missingThisMonth === 0 ? 'var(--hub-positive)' : 'var(--hub-text)',
+              }}
+            >
+              {missingThisMonth === null ? formatCurrency(totals.patrimonio) : missingThisMonth === 0 ? 'Meta cumprida' : formatCurrency(missingThisMonth)}
+            </p>
+            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--hub-text-body)' }}>
+              {missingThisMonth === null ? (
+                <>
+                  Sem meta de aporte mensal —{' '}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGoalInput('');
+                      setEditingGoal(true);
+                      document.getElementById('investment-goal')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }}
+                    className="font-medium transition-opacity hover:opacity-70"
+                    style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                  >
+                    definir uma
+                  </button>{' '}
+                  diz quanto investir por mês e onde.
+                </>
+              ) : missingThisMonth === 0 ? (
+                `${formatCurrency(contributedThisMonth)} aportados este mês, de ${formatCurrency(goal!.targetAmount)}.`
+              ) : (
+                <>
+                  falta aportar este mês
+                  {contributedThisMonth > 0 ? ` (já foram ${formatCurrency(contributedThisMonth)} de ${formatCurrency(goal!.targetAmount)})` : ''}
+                  {plan.split.deadlineActive && plan.split.reserveAmount > 0
+                    ? ` · ${formatCurrency(plan.split.reserveAmount)} pra reserva`
+                    : ''}
+                  {nextContribution ? ` · ${formatCurrency(nextContribution.amount)} → ${nextContribution.label}` : ''}
+                  .
+                </>
+              )}
+            </p>
+            <div
+              className="mt-5 flex flex-wrap gap-x-8 gap-y-3"
+              style={{ paddingTop: '14px', borderTop: '1px solid var(--hub-border)' }}
+            >
+              {missingThisMonth !== null && <InlineStat label="Patrimônio" value={formatCurrency(totals.patrimonio)} small />}
+              <InlineStat label="Total investido" value={formatCurrency(totals.investido)} small />
+              <InlineStat label="Rendimento" value={`${formatCurrency(totals.rendimento)} (${formatPct(totals.rentabilidade)})`} color={rendColor} small />
+              <InlineStat label="Reserva" value={formatCurrency(bucketTotals.reserva)} small />
+              <InlineStat label="Carteira" value={formatCurrency(bucketTotals.carteira)} small />
+            </div>
+          </>
+        )}
       </Card>
 
       {/* Reserva medida em meses de gasto */}
       <Card className="mb-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
               Reserva de emergência
             </p>
             {reserve.monthsCovered === null ? (
@@ -329,8 +457,8 @@ export function InvestmentsPlanningPage() {
               </p>
             ) : (
               <>
-                <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
-                  {reserve.monthsCovered.toFixed(1)} meses{' '}
+                <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+                  {decimal(reserve.monthsCovered, 1)} meses{' '}
                   <span style={{ fontSize: '13px', color: 'var(--hub-subtle)' }}>
                     de {reserve.targetMonths}
                   </span>
@@ -379,9 +507,6 @@ export function InvestmentsPlanningPage() {
           </p>
         )}
 
-        <p className="mt-3 text-xs leading-5" style={{ color: 'var(--hub-subtle)' }}>
-          A meta é medida em meses, não em reais: o valor em reais se recalcula sozinho quando seu gasto muda.
-        </p>
 
         <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: '1px solid var(--hub-border)' }}>
           <div className="flex items-center justify-between gap-4">
@@ -390,13 +515,7 @@ export function InvestmentsPlanningPage() {
             </p>
             {editingDeadline ? (
               <div className="flex shrink-0 items-center gap-3">
-                <input
-                  type="date"
-                  value={deadlineInput}
-                  onChange={(e) => setDeadlineInput(e.target.value)}
-                  className="bg-transparent pb-1 text-sm outline-none"
-                  aria-label="Prazo pra reserva"
-                />
+                <DateInput value={deadlineInput} onChange={setDeadlineInput} ariaLabel="Prazo pra reserva" />
                 <button
                   onClick={saveReserveDeadline}
                   className="text-sm font-medium transition-opacity hover:opacity-70"
@@ -411,7 +530,7 @@ export function InvestmentsPlanningPage() {
                 className="shrink-0 text-xs transition-opacity hover:opacity-70"
                 style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
               >
-                {reserveDeadline ? `Prazo: ${reserveDeadline.slice(0, 7)}` : 'Definir prazo'}
+                {reserveDeadline ? `Prazo: ${formatMonthLabel(reserveDeadline.slice(0, 7))}` : 'Definir prazo'}
               </button>
             )}
           </div>
@@ -426,6 +545,11 @@ export function InvestmentsPlanningPage() {
                 : `Nem mandando o aporte inteiro (${formatCurrency(plan.split.totalAmount)}) pra reserva dá pra fechar em ${plan.split.monthsToDeadline} meses — faltariam ${formatCurrency(plan.split.shortfallPerMonth ?? 0)}/mês. Aumente o aporte ou estenda o prazo.`}
             </p>
           )}
+          {plan.split.deadlinePassed && !plan.split.reserveComplete && (
+            <p className="mt-3 text-xs leading-5" style={{ color: 'var(--hub-warning)' }}>
+              O prazo da reserva já passou e ela ainda não fechou — escolha um novo prazo para o app voltar a dividir o aporte.
+            </p>
+          )}
           {!plan.split.deadlineActive && plan.split.reserveComplete && reserveDeadline && (
             <p className="mt-3 text-xs leading-5" style={{ color: 'var(--hub-positive)' }}>
               Reserva completa — o aporte inteiro segue pra carteira.
@@ -437,7 +561,7 @@ export function InvestmentsPlanningPage() {
       {/* Alocação alvo × real */}
       <Card className="mb-5">
         <div className="flex items-start justify-between gap-4" style={{ marginBottom: '4px' }}>
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             Alocação da carteira
           </p>
           <button
@@ -455,14 +579,21 @@ export function InvestmentsPlanningPage() {
             {editingTarget ? 'cancelar' : 'ajustar alvo'}
           </button>
         </div>
-        <p className="text-xs leading-5" style={{ color: 'var(--hub-subtle)', marginBottom: '16px' }}>
-          Só a carteira entra nesta conta — a reserva tem função própria e fica de fora.
-        </p>
+        <button
+          type="button"
+          onClick={() => setAllocationOpen((open) => !open)}
+          aria-expanded={allocationOpen}
+          className="text-xs transition-opacity hover:opacity-70"
+          style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 16px' }}
+        >
+          Só a carteira entra nesta conta, a reserva fica de fora · {allocationOpen ? 'recolher ▴' : 'ver fatias ▾'}
+        </button>
+        {allocationOpen || editingTarget ? (<>
 
         {editingTarget && (
           <div
             className="mb-4"
-            style={{ padding: '14px', borderRadius: '10px', background: 'var(--hub-surface-muted)' }}
+            style={{ padding: '14px', borderRadius: 'var(--hub-radius-card)', background: 'var(--hub-surface-muted)' }}
           >
             <div className="grid gap-3 sm:grid-cols-2">
               {SLEEVES.map(([sleeve, label]) => (
@@ -485,7 +616,7 @@ export function InvestmentsPlanningPage() {
                 className="text-xs tabular-nums"
                 style={{ color: Math.abs(targetDraftTotal - 100) < 0.01 ? 'var(--hub-positive)' : 'var(--hub-negative)' }}
               >
-                Soma: {targetDraftTotal.toFixed(0)}%{Math.abs(targetDraftTotal - 100) >= 0.01 && ' — precisa fechar 100%'}
+                Soma: {decimal(targetDraftTotal, 0)}%{Math.abs(targetDraftTotal - 100) >= 0.01 && ' — precisa fechar 100%'}
               </span>
               <button
                 onClick={saveTargetAllocation}
@@ -502,9 +633,9 @@ export function InvestmentsPlanningPage() {
         {nextContribution && (
           <div
             className="mb-4"
-            style={{ padding: '12px 14px', borderRadius: '10px', background: 'var(--hub-surface-muted)' }}
+            style={{ padding: '12px 14px', borderRadius: 'var(--hub-radius-card)', background: 'var(--hub-surface-muted)' }}
           >
-            <p style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+            <p style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
               Próximo aporte {plan.split.deadlineActive && '· parte da carteira'}
             </p>
             {plan.split.deadlineActive && plan.split.reserveAmount > 0 && (
@@ -529,19 +660,22 @@ export function InvestmentsPlanningPage() {
             <div key={sleeve.sleeve}>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-sm" style={{ color: 'var(--hub-text)' }}>{sleeve.label}</span>
-                <span className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
-                  {sleeve.currentPercent.toFixed(1)}% de {sleeve.targetPercent}%
+                <span
+                  className="text-xs tabular-nums"
+                  style={{ color: sleeve.currentPercent > sleeve.targetPercent + 2 ? 'var(--hub-warning)' : 'var(--hub-subtle)' }}
+                >
+                  {decimal(sleeve.currentPercent, 1)}% de {sleeve.targetPercent}%
                   {' · '}
                   {formatCurrency(sleeve.currentValue)}
                 </span>
               </div>
-              <div style={{ marginTop: '6px', height: '4px', borderRadius: '999px', background: 'var(--hub-surface-muted)', overflow: 'hidden' }}>
+              <div style={{ marginTop: '6px', height: '4px', borderRadius: 'var(--hub-radius-control)', background: 'var(--hub-surface-muted)', overflow: 'hidden' }}>
                 <div
                   style={{
                     width: `${Math.min(100, sleeve.targetPercent > 0 ? (sleeve.currentPercent / sleeve.targetPercent) * 100 : 0)}%`,
                     height: '100%',
                     background: 'var(--hub-accent)',
-                    borderRadius: '999px',
+                    borderRadius: 'var(--hub-radius-control)',
                   }}
                 />
               </div>
@@ -554,50 +688,18 @@ export function InvestmentsPlanningPage() {
             {formatCurrency(allocation.unassignedValue)} em carteira sem fatia definida — edite o ativo pra classificar.
           </p>
         )}
+        </>) : null}
       </Card>
 
+      <div id="investment-goal" className="scroll-mt-6" />
       <Card className="mb-5">
-        <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '10px' }}>
-          Pluggy · Open Finance
-        </p>
-        <p className="text-sm" style={{ color: 'var(--hub-muted)', marginBottom: '14px' }}>
-          Sincroniza posições de corretoras conectadas via Open Finance. Investimentos manuais não são afetados;
-          posições já sincronizadas são atualizadas, nunca duplicadas.
-        </p>
-        <button
-          onClick={handleSyncPluggy}
-          disabled={pluggySyncState === 'loading'}
-          className="text-sm font-medium transition-opacity hover:opacity-70 disabled:opacity-40"
-          style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer' }}
-        >
-          {pluggySyncState === 'loading' ? 'Sincronizando…' : 'Sincronizar com Pluggy'}
-        </button>
-        {pluggySyncState === 'done' && pluggySyncResult && (
-          <p className="mt-3 text-sm" style={{ color: 'var(--hub-positive)' }}>
-            ✓ {pluggySyncResult.created} nova(s), {pluggySyncResult.valuationsRecorded} marcação(ões) registrada(s)
-            {pluggySyncResult.unchanged > 0 && `, ${pluggySyncResult.unchanged} sem mudança`}.
-          </p>
-        )}
-        {pluggySyncState === 'empty' && (
-          <p className="mt-3 text-sm" style={{ color: 'var(--hub-subtle)' }}>
-            Nenhuma posição de investimento encontrada nas conexões atuais.
-          </p>
-        )}
-        {pluggySyncState === 'error' && (
-          <p className="mt-3 text-sm" style={{ color: 'var(--hub-negative)' }}>
-            ✗ Erro ao buscar dados da Pluggy.
-          </p>
-        )}
-      </Card>
-
-      <Card className="mb-5">
-        <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '10px' }}>
+        <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '10px' }}>
           Meta de aporte mensal
         </p>
         {editingGoal ? (
           <div className="flex items-center gap-4">
             <input
-              type="number"
+              inputMode="decimal"
               placeholder="ex: 500"
               value={goalInput}
               onChange={(e) => setGoalInput(e.target.value)}
@@ -620,7 +722,7 @@ export function InvestmentsPlanningPage() {
           </div>
         ) : (
           <div className="flex items-baseline gap-4">
-            <p style={{ fontSize: '20px', fontWeight: 300, letterSpacing: '-0.02em', color: goal ? 'var(--hub-text)' : 'var(--hub-disabled)' }}>
+            <p style={{ fontSize: '20px', fontWeight: 400, letterSpacing: '-0.02em', color: goal ? 'var(--hub-text)' : 'var(--hub-disabled)' }}>
               {goal ? formatCurrency(goal.targetAmount) : 'Não definida'}
             </p>
             <button
@@ -634,9 +736,10 @@ export function InvestmentsPlanningPage() {
         )}
       </Card>
 
+      {aiConfig.isReady() ? (
       <Card className="mb-5">
         <div className="flex items-baseline justify-between gap-4" style={{ marginBottom: '10px' }}>
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             Resumo do mês (IA)
           </p>
         </div>
@@ -667,7 +770,7 @@ export function InvestmentsPlanningPage() {
 
             {analysis.positives.length > 0 && (
               <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-positive)', marginBottom: '8px' }}>
+                <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-positive)', marginBottom: '8px' }}>
                   Pontos positivos
                 </p>
                 <ul className="grid gap-2">
@@ -683,7 +786,7 @@ export function InvestmentsPlanningPage() {
 
             {analysis.suggestions.length > 0 && (
               <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-warning)', marginBottom: '8px' }}>
+                <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-warning)', marginBottom: '8px' }}>
                   Sugestões
                 </p>
                 <ul className="grid gap-2">
@@ -697,16 +800,17 @@ export function InvestmentsPlanningPage() {
               </div>
             )}
 
-            <p style={{ fontSize: '10px', color: 'var(--hub-disabled)' }}>
+            <p style={{ fontSize: '11px', color: 'var(--hub-disabled)' }}>
               Gerado em {new Date(analysis.generatedAt).toLocaleString('pt-BR')}
             </p>
           </div>
         )}
       </Card>
+      ) : null}
 
       <Card>
         <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
             Carteira ({investments.length})
           </p>
           <button
@@ -757,11 +861,10 @@ export function InvestmentsPlanningPage() {
                             ? ` · ${SLEEVE_LABEL[inv.sleeve]}`
                             : ' · sem fatia'}
                         {inv.currency === 'USD' && ' · US$'}
-                        {inv.source === 'pluggy' && ' · via Pluggy'}
                       </p>
                     </div>
                     <div className="shrink-0 text-right">
-                      <p className="text-sm tabular-nums" style={{ color: 'var(--hub-text)', fontWeight: 300 }}>
+                      <p className="text-sm tabular-nums" style={{ color: 'var(--hub-text)', fontWeight: 400 }}>
                         {formatCurrency(inv.currentValue)}
                       </p>
                       <p className="text-xs tabular-nums" style={{ color }}>{formatPct(pct)}</p>
@@ -782,8 +885,9 @@ export function InvestmentsPlanningPage() {
                         Editar
                       </button>
                       <button
-                        onClick={() => handleDelete(inv.id)}
-                        className="text-xs transition-opacity hover:opacity-70"
+                        onClick={() => handleDelete(inv)}
+                        aria-label={`Excluir ${inv.name}`}
+                        className="flex h-9 w-9 items-center justify-center text-xs transition-opacity hover:opacity-70"
                         style={{ color: 'var(--hub-negative)', background: 'none', border: 'none', cursor: 'pointer' }}
                       >
                         ✕
@@ -819,7 +923,7 @@ export function InvestmentsPlanningPage() {
       {movementsFor && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-          style={{ background: 'rgba(58,44,34,0.35)' }}
+          style={{ background: 'var(--hub-overlay)' }}
           onClick={() => setMovementsFor(null)}
         >
           <div
@@ -833,7 +937,7 @@ export function InvestmentsPlanningPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
               Movimentos
             </p>
             <p className="text-sm" style={{ color: 'var(--hub-text)', marginBottom: '18px' }}>{movementsFor.name}</p>
@@ -854,11 +958,11 @@ export function InvestmentsPlanningPage() {
                 </div>
                 <div>
                   <label style={labelStyle}>Data</label>
-                  <input
-                    type="date"
+                  <DateInput
+                    className="w-full"
                     value={movementForm.date}
-                    onChange={(e) => setMovementForm((f) => ({ ...f, date: e.target.value }))}
-                    className={inputClass}
+                    onChange={(date) => setMovementForm((f) => ({ ...f, date }))}
+                    ariaLabel="Data da movimentação"
                   />
                 </div>
               </div>
@@ -868,7 +972,7 @@ export function InvestmentsPlanningPage() {
                     Valor ({(movementsFor.currency ?? 'BRL') === 'USD' ? 'US$' : 'R$'})
                   </label>
                   <input
-                    type="number"
+                    inputMode="decimal"
                     placeholder="0,00"
                     value={movementForm.amount}
                     onChange={(e) => setMovementForm((f) => ({ ...f, amount: e.target.value }))}
@@ -879,7 +983,7 @@ export function InvestmentsPlanningPage() {
                   <div>
                     <label style={labelStyle}>Dólar no dia (R$)</label>
                     <input
-                      type="number"
+                      inputMode="decimal"
                       placeholder="5,42"
                       value={movementForm.exchangeRate}
                       onChange={(e) => setMovementForm((f) => ({ ...f, exchangeRate: e.target.value }))}
@@ -913,6 +1017,7 @@ export function InvestmentsPlanningPage() {
               >
                 Registrar
               </button>
+              {movementError && <span className="text-xs" style={{ color: 'var(--hub-negative)' }}>{movementError}</span>}
               <button
                 onClick={() => setMovementsFor(null)}
                 className="text-xs transition-opacity hover:opacity-60"
@@ -923,7 +1028,7 @@ export function InvestmentsPlanningPage() {
             </div>
 
             <div style={{ marginTop: '22px', paddingTop: '16px', borderTop: '1px solid var(--hub-border)' }}>
-              <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '12px' }}>
+              <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '12px' }}>
                 Histórico
               </p>
               {investmentMovementService.listByInvestment(movementsFor.id).length === 0 ? (
@@ -942,23 +1047,18 @@ export function InvestmentsPlanningPage() {
                           {movement.note && <span style={{ color: 'var(--hub-subtle)' }}> · {movement.note}</span>}
                         </p>
                         <p className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
-                          {movement.date}
-                          {movement.exchangeRate && ` · US$ a R$ ${movement.exchangeRate.toFixed(2)}`}
+                          {formatDate(movement.date)}
+                          {movement.exchangeRate && ` · US$ a R$ ${decimal(movement.exchangeRate, 2)}`}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-3">
                         <span className="text-xs tabular-nums" style={{ color: 'var(--hub-text)' }}>
-                          {(movementsFor.currency ?? 'BRL') === 'USD' ? 'US$ ' : 'R$ '}
-                          {movement.amount.toFixed(2)}
+                          {(movementsFor.currency ?? 'BRL') === 'USD' ? 'US$ ' + decimal(movement.amount, 2) : formatCurrency(movement.amount)}
                         </span>
                         <button
-                          onClick={() => {
-                            investmentMovementService.remove(movement.id);
-                            investmentService.recalculateFromMovements(movementsFor.id);
-                            setMovementsFor(investmentService.getById(movementsFor.id));
-                            refresh();
-                          }}
-                          className="text-xs transition-opacity hover:opacity-70"
+                          onClick={() => handleDeleteMovement(movement.id, movementsFor.id)}
+                          aria-label="Excluir movimento"
+                          className="flex h-9 w-9 items-center justify-center text-xs transition-opacity hover:opacity-70"
                           style={{ color: 'var(--hub-negative)', background: 'none', border: 'none', cursor: 'pointer' }}
                         >
                           ✕
@@ -976,7 +1076,7 @@ export function InvestmentsPlanningPage() {
       {showForm && (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-          style={{ background: 'rgba(58,44,34,0.35)' }}
+          style={{ background: 'var(--hub-overlay)' }}
           onClick={() => setShowForm(false)}
         >
           <div
@@ -988,7 +1088,7 @@ export function InvestmentsPlanningPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
               {editId ? 'Editar investimento' : 'Novo investimento'}
             </p>
             <div className="space-y-5">
@@ -1028,7 +1128,7 @@ export function InvestmentsPlanningPage() {
                 <div>
                   <label style={labelStyle}>Valor atual (R$)</label>
                   <input
-                    type="number"
+                    inputMode="decimal"
                     placeholder="0,00"
                     value={form.currentValue}
                     onChange={(e) => setForm((f) => ({ ...f, currentValue: e.target.value }))}
@@ -1038,7 +1138,7 @@ export function InvestmentsPlanningPage() {
                 <div>
                   <label style={labelStyle}>Total investido (R$)</label>
                   <input
-                    type="number"
+                    inputMode="decimal"
                     placeholder="0,00"
                     value={form.totalInvested}
                     onChange={(e) => setForm((f) => ({ ...f, totalInvested: e.target.value }))}
@@ -1071,6 +1171,21 @@ export function InvestmentsPlanningPage() {
                   </Select>
                 </div>
               </div>
+              {!editId && form.currency === 'USD' && (
+                <div>
+                  <label style={labelStyle}>Dólar no dia (R$)</label>
+                  <input
+                    inputMode="decimal"
+                    placeholder="5,42"
+                    value={form.openingExchangeRate}
+                    onChange={(e) => setForm((f) => ({ ...f, openingExchangeRate: e.target.value }))}
+                    className={inputClass}
+                  />
+                  <p className="mt-1 text-xs leading-5" style={{ color: 'var(--hub-subtle)' }}>
+                    Os valores acima são em reais; o câmbio converte o saldo inicial para dólar.
+                  </p>
+                </div>
+              )}
               {form.bucket === 'carteira' && (
                 <div>
                   <label style={labelStyle}>Fatia da carteira</label>
@@ -1089,11 +1204,12 @@ export function InvestmentsPlanningPage() {
                 <div className="grid grid-cols-2 gap-5">
                   <div>
                     <label style={labelStyle}>Vencimento</label>
-                    <input
-                      type="date"
+                    <DateInput
+                      className="w-full"
                       value={form.maturityDate ?? ''}
-                      onChange={(e) => setForm((f) => ({ ...f, maturityDate: e.target.value }))}
-                      className={inputClass}
+                      onChange={(maturityDate) => setForm((f) => ({ ...f, maturityDate }))}
+                      ariaLabel="Vencimento"
+                      placeholder="Sem vencimento"
                     />
                   </div>
                   <div>
@@ -1134,6 +1250,7 @@ export function InvestmentsPlanningPage() {
               >
                 {editId ? 'Salvar alterações' : 'Adicionar'}
               </button>
+              {formError && <span className="text-xs" style={{ color: 'var(--hub-negative)' }}>{formError}</span>}
               <button
                 onClick={() => setShowForm(false)}
                 className="text-xs transition-opacity hover:opacity-60"
@@ -1162,10 +1279,10 @@ function InlineStat({
 }) {
   return (
     <div>
-      <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+      <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
         {label}
       </p>
-      <p className="tabular-nums" style={{ fontSize: small ? '15px' : '20px', fontWeight: 300, letterSpacing: '-0.02em', color }}>
+      <p className="tabular-nums" style={{ fontSize: small ? '15px' : '20px', fontWeight: 400, letterSpacing: '-0.02em', color }}>
         {value}
       </p>
     </div>

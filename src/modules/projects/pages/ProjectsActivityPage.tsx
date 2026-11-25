@@ -122,7 +122,7 @@ export function ProjectsActivityPage() {
             <p className="text-xs" style={{ color: 'var(--hub-subtle)' }}>Repositório: {repoFullName}</p>
             <div className="mt-3 flex flex-wrap items-end gap-4">
               <label className="min-w-[180px] flex-1">
-                <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                   Branch
                 </span>
                 <Select className="w-full" value={branch} onChange={setBranch}>
@@ -132,7 +132,7 @@ export function ProjectsActivityPage() {
               </label>
 
               <label className="min-w-[160px] flex-1">
-                <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+                <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                   Ordem
                 </span>
                 <Select className="w-full" value={order} onChange={(value) => setOrder(value as GitLogOrder)}>
@@ -172,8 +172,8 @@ export function ProjectsActivityPage() {
                     {commit.subject}
                   </p>
                   <div className="shrink-0 text-right">
-                    <p className="text-[10px]" style={{ color: 'var(--hub-subtle)' }}>{commit.author}</p>
-                    <p className="text-[10px] tabular-nums" style={{ color: 'var(--hub-disabled)' }}>
+                    <p className="text-[11px]" style={{ color: 'var(--hub-subtle)' }}>{commit.author}</p>
+                    <p className="text-[11px] tabular-nums" style={{ color: 'var(--hub-disabled)' }}>
                       {formatDateTime(commit.date)}
                     </p>
                   </div>

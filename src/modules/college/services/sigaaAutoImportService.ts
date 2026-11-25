@@ -1,3 +1,4 @@
+import { apiUrl } from '../../../core/config/backendConfig';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
 import { isSigaaExport, importSigaaData, type SigaaImportResult } from './sigaaImportService';
 import { materialService } from './materialService';
@@ -38,7 +39,7 @@ function hasIncompleteMaterials(data: { courses: { title: string; files: unknown
 
 export async function checkAndAutoImport(): Promise<SigaaImportResult | null> {
   try {
-    const res = await fetch('/sigaa-pending.json', { cache: 'no-store' });
+    const res = await fetch(apiUrl('/api/pending/sigaa'), { cache: 'no-store' });
     if (!res.ok) return null;
 
     const data: unknown = await res.json();

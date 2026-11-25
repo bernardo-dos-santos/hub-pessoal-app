@@ -2,6 +2,7 @@ import { type ModuleRouteDefinition } from '../../core/module-registry/module-ty
 import { StudyRoutesPage } from './pages/StudyRoutesPage';
 
 export const studyRoutes: ModuleRouteDefinition = {
+  moduleId: 'study',
   path: 'estudos/*',
   element: StudyRoutesPage,
 };

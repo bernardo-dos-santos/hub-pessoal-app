@@ -8,7 +8,7 @@ type RpgResourceCardProps = {
 
 const colorValues: Record<string, string> = {
   emerald: 'var(--hub-positive)',
-  fuchsia: '#C084FC',
+  fuchsia: 'var(--hub-mauve)',
   rose: 'var(--hub-negative)',
 };
 
@@ -35,7 +35,7 @@ export function RpgResourceCard({ onChange, onMaxChange, resource }: RpgResource
         </button>
         <input
           className="h-10 min-w-0 text-center text-lg tabular-nums"
-          style={{ fontWeight: 300 }}
+          style={{ fontWeight: 400 }}
           type="number"
           value={resource.current}
           onChange={(event) => onChange(Number(event.target.value))}
@@ -44,13 +44,13 @@ export function RpgResourceCard({ onChange, onMaxChange, resource }: RpgResource
         {onMaxChange ? (
           <input
             className="h-10 min-w-0 text-center text-lg tabular-nums"
-            style={{ fontWeight: 300 }}
+            style={{ fontWeight: 400 }}
             type="number"
             value={resource.max}
             onChange={(event) => onMaxChange(Number(event.target.value))}
           />
         ) : (
-          <span className="grid h-10 min-w-0 place-items-center px-2 text-lg tabular-nums" style={{ color: 'var(--hub-text)', fontWeight: 300 }}>{resource.max}</span>
+          <span className="grid h-10 min-w-0 place-items-center px-2 text-lg tabular-nums" style={{ color: 'var(--hub-text)', fontWeight: 400 }}>{resource.max}</span>
         )}
         <button
           className="grid h-10 w-10 place-items-center text-lg transition-opacity hover:opacity-70"

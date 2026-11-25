@@ -2,6 +2,7 @@ import { updateDailyContext } from '../../../core/context/dailyContext';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
 import { generateId } from '../../../shared/utils/generateId';
 import { type Workout, type WorkoutType } from '../types/workout';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 const STORAGE_KEY = 'fitness.workouts';
 
@@ -27,7 +28,7 @@ export const workoutService = {
       createdAt: new Date().toISOString(),
     };
     storageAdapter.setItem(STORAGE_KEY, [workout, ...this.listWorkouts()]);
-    if (workout.date === new Date().toISOString().slice(0, 10)) {
+    if (workout.date === localDayKey()) {
       updateDailyContext({ fitness: { workedOutToday: true, todayWorkoutType: workout.type } });
     }
     return workout;

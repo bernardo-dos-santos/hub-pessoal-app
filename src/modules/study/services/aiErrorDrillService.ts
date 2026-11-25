@@ -19,7 +19,7 @@ export const aiErrorDrillService = {
   /** Gera 3 perguntas de revisão baseadas no erro do caderno. */
   async generateDrillQuestions(entry: ErrorNotebookEntry, question: Question): Promise<DrillQuestion[]> {
     const options = question.options.map((o) => `${o.letter}) ${o.text}`).join('\n');
-    const prompt = `Você é um tutor de concursos. Um aluno errou esta questão ${entry.timesFailed} vez(es) e precisa dominar o conteúdo.
+    const prompt = `Você é um tutor. Um aluno errou esta questão ${entry.timesFailed} vez(es) e precisa dominar o conteúdo.
 
 Questão original:
 ${question.statement}

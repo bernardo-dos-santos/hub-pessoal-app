@@ -1,4 +1,5 @@
 import { storageAdapter } from '../../../core/storage/storage.adapter';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 type RetentionEntry = {
   date: string; // YYYY-MM-DD
@@ -10,7 +11,7 @@ type RetentionEntry = {
 const KEY = 'study.retentionLog';
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 export const retentionService = {
@@ -35,7 +36,7 @@ export const retentionService = {
   getRecentRate(days: number): number | null {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const cutoffStr = localDayKey(cutoff);
     const recent = this.getLog().filter((e) => e.date >= cutoffStr);
     if (recent.length === 0) return null;
     const totalCorrect = recent.reduce((s, e) => s + e.correct, 0);

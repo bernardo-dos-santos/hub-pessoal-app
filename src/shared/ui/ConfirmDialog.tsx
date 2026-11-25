@@ -26,7 +26,7 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end p-3 sm:place-items-center" style={{ background: 'rgba(58,44,34,0.35)' }}>
+    <div className="fixed inset-0 z-50 grid place-items-end p-3 sm:place-items-center" style={{ background: 'var(--hub-overlay)' }}>
       <section
         className="grid w-full max-w-sm gap-4 p-5"
         style={{
@@ -38,7 +38,7 @@ export function ConfirmDialog({
         <div>
           <h2 className="text-base font-medium" style={{ color: 'var(--hub-text)' }}>{title}</h2>
           {description ? (
-            <p className="mt-1.5 text-sm leading-6" style={{ color: 'var(--hub-muted)' }}>{description}</p>
+            <p className="mt-1.5 whitespace-pre-line text-sm leading-6" style={{ color: 'var(--hub-muted)' }}>{description}</p>
           ) : null}
         </div>
         <div className="flex items-center justify-end gap-6">

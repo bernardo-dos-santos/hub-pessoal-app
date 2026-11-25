@@ -3,7 +3,7 @@
  *
  * Sem chave e sem cadastro (por isso foi a escolhida em vez de serviços pagos).
  * Existe pra responder o que importa aqui: dá pra correr hoje? vai chover na
- * hora que o treino está planejado? — o Cooper do TAF é ao ar livre.
+ * hora que o treino está planejado?
  *
  * De ONDE é a previsão, em ordem de prioridade:
  *   1. a última posição que o celular mandou, se recente (Fase 13);

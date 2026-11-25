@@ -1,12 +1,19 @@
+import { apiUrl } from '../../../core/config/backendConfig';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
-import { categoryRuleService } from './categoryRuleService';
+import { type RawTransactionDraft } from '../types/import';
+import { commitImportSelection, getDefaultSelectedImportItems } from './importCommitService';
+import { nubankCreditCardProfile } from './parsers/parserProfiles';
+import { importService } from './importService';
 import { transactionService } from './transactionService';
+import { isRequiredReviewTransaction } from '../../../shared/finance/financeTotals.js';
+import { transactionMonthKey } from '../utils/financeCalculations';
 
 const IMPORTED_SOURCES_KEY = 'finance.nubankInvoiceImportedSources';
 
 type InvoiceTransaction = {
   date: string;
   description: string;
+  /** Positive for a purchase; a refund may come either way — only isRefund decides. */
   amount: number;
   isRefund: boolean;
   installment: { current: number; total: number } | null;
@@ -20,11 +27,10 @@ type InvoicePending = {
   transactions: InvoiceTransaction[];
 };
 
-export type InvoiceImportResult = {
-  imported: number;
-  skipped: number;
-  sourceFile: string;
-} | null;
+export type InvoiceImportResult =
+  | { imported: number; skipped: number; sourceFile: string; reviewCount: number; reviewMonths: string[]; error?: undefined }
+  | { error: string; imported?: undefined }
+  | null;
 
 function getImportedSources(): string[] {
   return storageAdapter.getItem<string[]>(IMPORTED_SOURCES_KEY) ?? [];
@@ -44,68 +50,64 @@ function buildDescription(tx: InvoiceTransaction): string {
   return tx.description;
 }
 
+/** One PDF line as the same draft a card CSV line becomes. */
+function toDraft(tx: InvoiceTransaction): RawTransactionDraft {
+  const value = Math.abs(Number(tx.amount) || 0);
+  return {
+    date: tx.date,
+    description: buildDescription(tx),
+    originalDescription: tx.description,
+    // A purchase leaves the card (negative); a refund comes back (positive). The
+    // parser sends refunds already negative, and flipping that again made every
+    // refund add to the bill instead of taking off it.
+    amount: tx.isRefund ? value : -value,
+    accountName: nubankCreditCardProfile.defaultAccountName,
+    institution: nubankCreditCardProfile.defaultInstitution,
+    scope: 'pessoal',
+    accountType: 'credit_card',
+    method: 'credito',
+    source: 'nubank_credit_card',
+  };
+}
+
+/**
+ * Imports the PDF bill the sync left on the server, through the same path as a
+ * card CSV: classifier and aliases, duplicate check against saved transactions
+ * (date + value + description + account — it used to be date + value only, so a
+ * R$ 25 lunch vanished when a R$ 25 Pix happened the same day), reimbursement
+ * pairing. Errors come back as `{ error }` instead of looking like "nothing new".
+ */
 export async function checkAndAutoImportInvoice(): Promise<InvoiceImportResult> {
+  let data: InvoicePending;
   try {
-    const res = await fetch('/nubank-invoice-pending.json');
-    if (!res.ok) return null;
-
-    const data: InvoicePending = await res.json();
-    if (!data?.transactions?.length) return null;
-
-    const importedSources = getImportedSources();
-    if (importedSources.includes(data.sourceFile)) return null;
-
-    const existingTransactions = transactionService.listTransactions();
-    let imported = 0;
-    let skipped = 0;
-
-    for (const tx of data.transactions) {
-      // Dedup: mesma data + descrição + valor já existe?
-      const isDuplicate = existingTransactions.some(
-        (existing) =>
-          existing.date === tx.date &&
-          Math.abs(existing.amount - (tx.isRefund ? tx.amount : -tx.amount)) < 0.01,
-      );
-
-      if (isDuplicate) {
-        skipped++;
-        continue;
-      }
-
-      const description = buildDescription(tx);
-      const ruleMatch = tx.isRefund ? null : categoryRuleService.findMatchingCategoryRule(description);
-
-      transactionService.createTransaction({
-        date: tx.date,
-        description,
-        originalDescription: tx.description,
-        amount: tx.isRefund ? tx.amount : -tx.amount,
-        category: ruleMatch?.category ?? (tx.isRefund ? 'Estorno' : 'Despesa a revisar'),
-        categoryId: ruleMatch ? undefined : (tx.isRefund ? 'estorno' : 'despesa-a-revisar'),
-        accountId: 'nubank-cartao',
-        accountName: 'Nubank Cartão',
-        institution: 'Nubank',
-        scope: 'pessoal',
-        accountType: 'credit_card',
-        method: 'credito',
-        kind: ruleMatch?.kind ?? (tx.isRefund ? 'refund' : 'card_purchase'),
-        source: 'nubank_credit_card',
-        manualCategory: ruleMatch ? true : false,
-        needsReview: ruleMatch ? false : !tx.isRefund,
-        classificationConfidence: ruleMatch?.confidence ?? 'low',
-        classificationReason: ruleMatch
-          ? `Regra manual: "${ruleMatch.ruleKeyword}" → ${ruleMatch.category}`
-          : 'Importado da fatura PDF Nubank',
-      });
-      imported++;
-    }
-
-    if (imported > 0) {
-      markSourceImported(data.sourceFile);
-    }
-
-    return { imported, skipped, sourceFile: data.sourceFile };
+    const res = await fetch(apiUrl('/api/pending/nubank-invoice'), { cache: 'no-store' });
+    if (res.status === 404) return null;
+    if (!res.ok) return { error: `O servidor respondeu ${res.status} ao buscar a fatura.` };
+    data = await res.json();
   } catch {
-    return null;
+    return { error: 'Não deu para falar com o servidor para buscar a fatura.' };
+  }
+
+  if (!data?.transactions?.length) return null;
+  if (getImportedSources().includes(data.sourceFile)) return null;
+
+  try {
+    const existingTransactions = transactionService.listForDuplicateCheck();
+    const preview = importService.previewImportDrafts(data.transactions.map(toDraft), existingTransactions);
+    const selection = getDefaultSelectedImportItems(preview);
+    const result = commitImportSelection(selection, existingTransactions, 'nubank_credit_card');
+    markSourceImported(data.sourceFile);
+
+    // Which financial months got something to review — Revisar opens on the current one.
+    const reviewMonths = [...new Set(result.importedTransactions.filter(isRequiredReviewTransaction).map(transactionMonthKey))].sort();
+    return {
+      imported: result.importedCount,
+      skipped: result.skippedCount,
+      sourceFile: data.sourceFile,
+      reviewCount: result.reviewCount,
+      reviewMonths,
+    };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : 'Falha ao gravar a fatura importada.' };
   }
 }

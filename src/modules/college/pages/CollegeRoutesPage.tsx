@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { RedirectPreservingQuery } from '../../../shared/ui';
 import { AssessmentsPage } from './AssessmentsPage';
 import { CollegeDashboardPage } from './CollegeDashboardPage';
 import { CollegeSettingsPage } from './CollegeSettingsPage';
@@ -20,9 +21,12 @@ export function CollegeRoutesPage() {
       <Route path="notas" element={<GradesPage />} />
       <Route path="materiais" element={<MaterialsPage />} />
       <Route path="estudo" element={<StudyPage />} />
-      <Route path="captura" element={<QuickCapturePage />} />
-      <Route path="sigaa" element={<SigaaImportPage />} />
-      <Route path="configuracoes" element={<CollegeSettingsPage />} />
+      <Route path="tarefas/captura" element={<QuickCapturePage />} />
+      <Route path="configurar/sigaa" element={<SigaaImportPage />} />
+      <Route path="configurar" element={<CollegeSettingsPage />} />
+      <Route path="captura" element={<RedirectPreservingQuery to="/faculdade/tarefas/captura" />} />
+      <Route path="sigaa" element={<RedirectPreservingQuery to="/faculdade/configurar/sigaa" />} />
+      <Route path="configuracoes" element={<RedirectPreservingQuery to="/faculdade/configurar" />} />
       <Route path="*" element={<Navigate to="/faculdade" replace />} />
     </Routes>
   );

@@ -14,6 +14,8 @@ import { runAgent } from './agent.js';
 import { getTickTools } from './tools/index.js';
 import { PERSONA_PROMPT, INITIATIVE_PROMPT } from './persona.js';
 import { agentParamsFor, getJarvisConfig } from './config.js';
+import { MAX_PUSHES_PER_DAY, MIN_HOURS_BETWEEN_PUSHES } from './tools/self.js';
+import { localDayKey } from '../../src/shared/dates/localDay.js';
 
 const RECENT_CHAT_WINDOW_MS = 30 * 60_000;
 const MAX_LOG_ENTRIES = 100;
@@ -37,7 +39,7 @@ function logDecision(state, entry) {
 }
 
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 // Campos puramente temporais (mudam todo tick sem significar nada mudou de
@@ -119,6 +121,18 @@ export async function runInitiativeTick() {
   const trackedNote = dueTracked.length > 0
     ? `\n\nACOMPANHAMENTOS VENCIDOS (você pediu pra olhar de novo a partir de agora): ${dueTracked.map((t) => `"${t.what}" (${t.why})`).join('; ')}`
     : '';
+  // What it already said. Without this, each tick started from zero: on
+  // 2026-10-11 it noticed the same late study session at every tick and
+  // pushed it five times in three hours.
+  const recentNotes = (kv('jarvis.inbox') ?? [])
+    .filter((item) => now.getTime() - new Date(item.createdAt).getTime() < 24 * 3_600_000)
+    .slice(0, 12);
+  const recentNote = recentNotes.length > 0
+    ? `\n\nO QUE VOCÊ JÁ DISSE NAS ÚLTIMAS 24H (não volte ao mesmo assunto sem fato novo — repetir é o que faz ele desligar as notificações):\n${recentNotes.map((item) => `- ${new Date(item.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} ${item.pushed ? '[push]' : '[caixa de entrada]'} ${item.title}`).join('\n')}`
+    : '';
+  const pushesLeft = Math.max(0, MAX_PUSHES_PER_DAY - (kv('jarvis.inbox') ?? [])
+    .filter((item) => item.pushed && new Date(item.createdAt).toDateString() === now.toDateString()).length);
+  const pushNote = `\n\nPUSHES RESTANTES HOJE: ${pushesLeft} de ${MAX_PUSHES_PER_DAY} (e no mínimo ${MIN_HOURS_BETWEEN_PUSHES}h entre um e outro). Além disso, notify_bernardo só registra na caixa de entrada.`;
 
   const systemBlocks = [
     // Sem cache_control aqui de propósito, mas não pelo motivo original (que
@@ -129,7 +143,7 @@ export async function runInitiativeTick() {
     // coberto — e o bloco seguinte (contexto) muda a cada tick por definição,
     // então nada depois dele seria reaproveitado de qualquer forma.
     { type: 'text', text: PERSONA_PROMPT },
-    { type: 'text', text: contextPrompt + trackedNote },
+    { type: 'text', text: contextPrompt + trackedNote + recentNote + pushNote },
     { type: 'text', text: INITIATIVE_PROMPT },
   ];
 
@@ -137,7 +151,7 @@ export async function runInitiativeTick() {
     const result = await runAgent({
       ...agentParamsFor('tick', config),
       systemBlocks,
-      messages: [{ role: 'user', content: '(tick automático — sem pergunta do Senhor. Decida com base no contexto acima.)' }],
+      messages: [{ role: 'user', content: '(tick automático — sem pergunta do Bernardo. Decida com base no contexto acima.)' }],
       tools: getTickTools(config),
     });
 

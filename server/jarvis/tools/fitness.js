@@ -1,10 +1,9 @@
 /**
- * jarvis/tools/fitness.js — add_workout, get_fitness_log, get_taf_status.
+ * jarvis/tools/fitness.js — add_workout, get_fitness_log.
  */
 
 import { kvStore } from '../../db.js';
 import { kv } from '../context.js';
-import { TAF_REQUIREMENTS } from './index.js';
 
 export const fitnessTools = [
   {
@@ -31,11 +30,6 @@ export const fitnessTools = [
       },
     },
   },
-  {
-    name: 'get_taf_status',
-    description: 'Situação do TAF do CBMSC: melhor marca em cada prova, se já passa do mínimo e quanto falta. Use quando Bernardo perguntar do TAF, se está pronto, ou o que precisa treinar — o TAF é eliminatório.',
-    input_schema: { type: 'object', properties: {} },
-  },
 ];
 
 export async function executeFitnessTool(name, args) {
@@ -60,35 +54,6 @@ export async function executeFitnessTool(name, args) {
       const workouts = (kv('fitness.workouts') ?? []).slice(0, args.limit ?? 10)
         .map((w) => ({ date: w.date, type: w.type, durationMinutes: w.durationMinutes, notes: w.notes }));
       return { ok: true, workouts };
-    }
-
-    case 'get_taf_status': {
-      const workouts = kv('fitness.workouts') ?? [];
-      const results = TAF_REQUIREMENTS.map((req) => {
-        const own = workouts.filter((w) => w.type === req.workoutType);
-        // Melhor marca histórica: no TAF vale o que ele já provou conseguir.
-        const values = own
-          .map((w) => (req.workoutType === 'running' ? w.distanceMeters : w.reps))
-          .filter((v) => typeof v === 'number' && v > 0);
-        const best = values.length > 0 ? Math.max(...values) : null;
-        const last = own.map((w) => w.date).sort().pop() ?? null;
-        return {
-          prova: req.testName,
-          minimo: `${req.minimumValue} ${req.unit}`,
-          melhorMarca: best !== null ? `${best} ${req.unit}` : null,
-          passa: best !== null ? best >= req.minimumValue : null,
-          faltam: best !== null && best < req.minimumValue ? `${req.minimumValue - best} ${req.unit}` : null,
-          ultimoTreino: last,
-        };
-      });
-      const semRegistro = results.filter((r) => r.melhorMarca === null).map((r) => r.prova);
-      return {
-        ok: true,
-        provas: results,
-        // Sem isto o modelo diz "está tudo certo" quando na verdade nunca foi medido.
-        semRegistro,
-        reprovando: results.filter((r) => r.passa === false).map((r) => r.prova),
-      };
     }
 
     default:

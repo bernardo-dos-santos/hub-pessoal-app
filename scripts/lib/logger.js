@@ -14,7 +14,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LOGS_DIR = resolve(__dirname, '../../logs');
+const LOGS_DIR = process.env.HUB_LOGS_DIR ?? resolve(__dirname, '../../logs');
 const LOGS_PATH = resolve(LOGS_DIR, 'sync-log.json');
 const MAX_ENTRIES = 500;
 

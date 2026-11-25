@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from 'react';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, DateInput } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { EmptyCollegeState } from '../components/EmptyCollegeState';
 import { gradeService } from '../services/gradeService';
@@ -132,7 +132,7 @@ export function GradesPage() {
               </Field>
             </div>
             <Field label="Data">
-              <input className={inputClass} type="date" value={draft.date} onChange={(event) => setDraft({ ...draft, date: event.target.value })} />
+              <DateInput className="w-full" value={draft.date} onChange={(date) => setDraft({ ...draft, date })} ariaLabel="Data da nota" />
             </Field>
             <Field label="Notas">
               <textarea className={`${inputClass} min-h-24 pt-1`} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} placeholder="Observacoes" />
@@ -175,7 +175,7 @@ export function GradesPage() {
                     <div>
                       <h3 className="text-sm font-semibold" style={{ color: 'var(--hub-text)' }}>{subject.name}</h3>
                       {plan?.finalFormula ? (
-                        <p className="mt-0.5 text-[10px] uppercase tracking-wider" style={{ color: 'var(--hub-subtle)' }}>
+                        <p className="mt-0.5 text-[11px] uppercase tracking-wider" style={{ color: 'var(--hub-subtle)' }}>
                           {plan.finalFormula} · mín. {passing}
                         </p>
                       ) : (
@@ -191,7 +191,7 @@ export function GradesPage() {
                           : remaining <= 2 ? 'var(--hub-warning)'
                           : 'var(--hub-subtle)';
                         return (
-                          <p className="mt-0.5 text-[10px]" style={{ color: attColor }}>
+                          <p className="mt-0.5 text-[11px]" style={{ color: attColor }}>
                             {absences} falta{absences === 1 ? '' : 's'}
                             {totalAllowed !== null ? ` / ${totalAllowed} máximo` : ''}
                             {remaining !== null && remaining <= 2 && remaining > 0 ? ` · ${remaining} restante${remaining === 1 ? '' : 's'}` : ''}
@@ -202,11 +202,11 @@ export function GradesPage() {
                     </div>
                     {summary.projectedFinal !== null && (
                       <div className="shrink-0 text-right">
-                        <p className="text-lg font-light tabular-nums leading-none" style={{ color: projColor, letterSpacing: '-0.02em' }}>
+                        <p className="text-lg font-normal tabular-nums leading-none" style={{ color: projColor, letterSpacing: '-0.02em' }}>
                           {summary.projectedFinal.toFixed(2).replace('.', ',')}
                         </p>
                         {statusText && (
-                          <p className="mt-1 text-[10px]" style={{ color: projColor }}>{statusText}</p>
+                          <p className="mt-1 text-[11px]" style={{ color: projColor }}>{statusText}</p>
                         )}
                       </div>
                     )}
@@ -239,7 +239,7 @@ export function GradesPage() {
                               <p className="mt-0.5 text-xs leading-5" style={{ color: 'var(--hub-subtle)' }}>
                                 {`Peso ${Math.round(av.weight * 100)}%`}
                                 {statusTag && (
-                                  <span className="ml-2 font-semibold uppercase tracking-widest text-[10px]" style={{ color: statusColor }}>
+                                  <span className="ml-2 font-semibold uppercase tracking-widest text-[11px]" style={{ color: statusColor }}>
                                     {statusTag}
                                   </span>
                                 )}
@@ -308,7 +308,7 @@ export function GradesPage() {
                               <p className="text-sm" style={{ color: gradeColor }}>
                                 {grade.title}
                                 {isRec && (
-                                  <span className="ml-2 text-[10px] font-semibold uppercase tracking-widest" style={{ opacity: 0.7 }}>
+                                  <span className="ml-2 text-[11px] font-semibold uppercase tracking-widest">
                                     rec.
                                   </span>
                                 )}
@@ -357,7 +357,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}

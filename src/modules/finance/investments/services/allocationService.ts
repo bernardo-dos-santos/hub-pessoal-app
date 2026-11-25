@@ -63,20 +63,26 @@ export function calculateAllocation(
 ): PortfolioAllocation {
   const portfolio = portfolioInvestments(investments);
   const total = portfolio.reduce((sum, investment) => sum + investment.currentValue, 0);
+  // Percentages are over what is classified: an unclassified asset used to
+  // count in the base, so every sleeve looked below target and the next
+  // contribution chased a gap that was really just missing classification.
+  const assigned = portfolio
+    .filter((investment) => investment.sleeve && ALLOCATION_SLEEVES.includes(investment.sleeve))
+    .reduce((sum, investment) => sum + investment.currentValue, 0);
 
   const sleeves = ALLOCATION_SLEEVES.map((sleeve) => {
     const currentValue = portfolio
       .filter((investment) => investment.sleeve === sleeve)
       .reduce((sum, investment) => sum + investment.currentValue, 0);
     const targetPercent = target[sleeve] ?? 0;
-    const targetValue = (total * targetPercent) / 100;
+    const targetValue = (assigned * targetPercent) / 100;
 
     return {
       sleeve,
       label: SLEEVE_LABEL[sleeve],
       targetPercent,
       currentValue,
-      currentPercent: total > 0 ? (currentValue / total) * 100 : 0,
+      currentPercent: assigned > 0 ? (currentValue / assigned) * 100 : 0,
       targetValue,
       gap: targetValue - currentValue,
     };

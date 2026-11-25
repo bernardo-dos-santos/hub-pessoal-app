@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from '../config/backendConfig';
+import { disableNativePush, enableNativePush, isNativePush, nativePushEnabled } from './nativePush';
 
 export type PushState = 'unsupported' | 'denied' | 'subscribed' | 'unsubscribed' | 'error';
 
@@ -13,7 +15,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 
 async function getPublicKey(): Promise<string | null> {
   try {
-    const res = await fetch('/api/push/vapid-public-key');
+    const res = await fetch(apiUrl('/api/push/vapid-public-key'));
     if (!res.ok) return null;
     const { publicKey } = await res.json() as { publicKey: string };
     return publicKey;
@@ -22,14 +24,14 @@ async function getPublicKey(): Promise<string | null> {
   }
 }
 
-async function subscribe(publicKey: string): Promise<boolean> {
+async function subscribeWeb(publicKey: string): Promise<boolean> {
   const registration = await navigator.serviceWorker.ready;
   const sub = await registration.pushManager.subscribe({
     userVisibleOnly: true,
     // Uint8Array diretamente (mais compatível que .buffer)
     applicationServerKey: urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer,
   });
-  const res = await fetch('/api/push/subscribe', {
+  const res = await fetch(apiUrl('/api/push/subscribe'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(sub.toJSON()),
@@ -37,11 +39,11 @@ async function subscribe(publicKey: string): Promise<boolean> {
   return res.ok;
 }
 
-async function unsubscribe(): Promise<void> {
+async function unsubscribeWeb(): Promise<void> {
   const registration = await navigator.serviceWorker.ready;
   const sub = await registration.pushManager.getSubscription();
   if (!sub) return;
-  await fetch('/api/push/unsubscribe', {
+  await fetch(apiUrl('/api/push/unsubscribe'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoint: sub.endpoint }),
@@ -49,11 +51,22 @@ async function unsubscribe(): Promise<void> {
   await sub.unsubscribe();
 }
 
+/**
+ * One switch for notifications on this device: Web Push in the browser/PWA,
+ * Firebase Cloud Messaging in the APK (whose WebView has no Web Push).
+ */
 export function usePushNotifications() {
   const [state, setState] = useState<PushState>('unsubscribed');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const native = isNativePush();
 
   useEffect(() => {
+    if (native) {
+      nativePushEnabled()
+        .then((s) => setState(s === 'granted' ? 'subscribed' : s === 'denied' ? 'denied' : 'unsubscribed'))
+        .catch(() => setState('unsupported'));
+      return;
+    }
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
       setState('unsupported');
       return;
@@ -66,13 +79,23 @@ export function usePushNotifications() {
       .then((reg) => reg.pushManager.getSubscription())
       .then((sub) => setState(sub ? 'subscribed' : 'unsubscribed'))
       .catch(() => setState('unsubscribed'));
-  }, []);
+  }, [native]);
 
   async function toggle() {
     setErrorMsg(null);
     try {
+      if (native) {
+        if (state === 'subscribed') {
+          await disableNativePush();
+          setState('unsubscribed');
+          return;
+        }
+        setState((await enableNativePush()) === 'granted' ? 'subscribed' : 'denied');
+        return;
+      }
+
       if (state === 'subscribed') {
-        await unsubscribe();
+        await unsubscribeWeb();
         setState('unsubscribed');
         return;
       }
@@ -85,7 +108,7 @@ export function usePushNotifications() {
         return;
       }
 
-      const ok = await subscribe(publicKey);
+      const ok = await subscribeWeb(publicKey);
       if (ok) {
         setState('subscribed');
       } else {

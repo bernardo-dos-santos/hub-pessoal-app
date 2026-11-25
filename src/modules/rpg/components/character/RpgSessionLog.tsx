@@ -80,7 +80,7 @@ export function RpgSessionLog({ character, onResourceChange }: Props) {
     <div className="space-y-5">
       {/* Botões de descanso */}
       <div>
-        <p className="mb-2 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Descanso</p>
+        <p className="mb-2 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Descanso</p>
         <div className="flex gap-6">
           <button
             onClick={handleShortRest}
@@ -101,7 +101,7 @@ export function RpgSessionLog({ character, onResourceChange }: Props) {
 
       {/* Adicionar nota */}
       <div>
-        <p className="mb-1.5 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Adicionar nota ao log</p>
+        <p className="mb-1.5 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Adicionar nota ao log</p>
         <div className="flex items-baseline gap-3">
           <input
             type="text"
@@ -125,11 +125,11 @@ export function RpgSessionLog({ character, onResourceChange }: Props) {
       {/* Log */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Log da sessão</p>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}>Log da sessão</p>
           {log.length > 0 && (
             <button
               onClick={handleClear}
-              className="text-[10px] transition-opacity hover:opacity-70"
+              className="text-[11px] transition-opacity hover:opacity-70"
               style={{ color: 'var(--hub-negative)', background: 'none', border: 'none', cursor: 'pointer' }}
             >
               Limpar log
@@ -153,7 +153,7 @@ export function RpgSessionLog({ character, onResourceChange }: Props) {
                 <p className="flex-1 text-xs leading-relaxed" style={{ color: kindColor[entry.kind] }}>
                   {entry.text}
                 </p>
-                <span className="shrink-0 text-[10px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{formatTime(entry.timestamp)}</span>
+                <span className="shrink-0 text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{formatTime(entry.timestamp)}</span>
               </div>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import { storageAdapter } from '../storage/storage.adapter';
 import { refreshKey } from '../storage/apiStorageAdapter';
 import { apiUrl } from '../config/backendConfig';
+import { emitVoiceLevels, SILENT, spectrumToLevels } from './voiceLevels';
 
 const HISTORY_KEY = 'jarvis.chatHistory';
 const MAX_HISTORY = 20;
@@ -60,10 +61,6 @@ let analyser: AnalyserNode | null = null;
 let sourceNode: MediaElementAudioSourceNode | null = null;
 let analyserData: Uint8Array<ArrayBuffer> | null = null;
 let levelRaf = 0;
-const levelListeners = new Set<(volume: number, treble: number) => void>();
-function setLevel(volume: number, treble: number): void {
-  levelListeners.forEach((cb) => cb(volume, treble));
-}
 
 // Conecta o áudio ao analisador ANTES do play() e espera o AudioContext sair de
 // "suspended". Conectar depois (no onplay, como era) redirecionava o som pro
@@ -77,25 +74,21 @@ async function startAnalyser(audio: HTMLAudioElement): Promise<void> {
     if (audioCtx.state === 'suspended') await audioCtx.resume();
     const source = audioCtx.createMediaElementSource(audio);
     const node = audioCtx.createAnalyser();
-    node.fftSize = 256;
+    // 1024 → ~47 Hz per bin: fine enough to split the voice into the three
+    // bands IrisMark reads (voiceLevels.ts). 256 left the lows in one bin.
+    node.fftSize = 1024;
+    node.smoothingTimeConstant = 0.75;
     source.connect(node);
     node.connect(audioCtx.destination);
     sourceNode = source;
     analyser = node;
     analyserData = new Uint8Array(new ArrayBuffer(node.frequencyBinCount));
+    const ctx = audioCtx;
 
     const loop = () => {
       if (!analyser || !analyserData) return;
       analyser.getByteFrequencyData(analyserData);
-      const n = analyserData.length;
-      const bassEnd = Math.floor(n * 0.35);
-      let bassSum = 0;
-      let trebleSum = 0;
-      for (let i = 0; i < bassEnd; i++) bassSum += analyserData[i];
-      for (let i = bassEnd; i < n; i++) trebleSum += analyserData[i];
-      const volume = bassSum / bassEnd / 255;
-      const treble = trebleSum / (n - bassEnd) / 255;
-      setLevel(volume, treble);
+      emitVoiceLevels(spectrumToLevels(analyserData, ctx.sampleRate, analyser.fftSize));
       levelRaf = requestAnimationFrame(loop);
     };
     loop();
@@ -111,7 +104,7 @@ function stopAnalyser(): void {
   analyser = null;
   sourceNode = null;
   analyserData = null;
-  setLevel(0, 0);
+  emitVoiceLevels(SILENT);
 }
 
 // Espera o elemento ter áudio suficiente bufferizado pra tocar sem engasgo.
@@ -176,7 +169,7 @@ async function consumeSseChat(
 
       if (event === 'delta' && payload.text) onDelta?.(payload.text);
       else if (event === 'done') result = { text: payload.text, affectedKeys: payload.affectedKeys };
-      else if (event === 'error') failure = payload.error ?? 'Erro no JARVIS.';
+      else if (event === 'error') failure = payload.error ?? 'Erro na Íris.';
     }
   }
 
@@ -332,11 +325,5 @@ export const jarvisService = {
   onSpeakingChange(cb: (speaking: boolean) => void): () => void {
     speakingListeners.add(cb);
     return () => speakingListeners.delete(cb);
-  },
-
-  /** Assina o nível de volume (grave/médio, 0–1) e energia de agudos (0–1) do áudio em reprodução. */
-  onAudioLevel(cb: (volume: number, treble: number) => void): () => void {
-    levelListeners.add(cb);
-    return () => levelListeners.delete(cb);
   },
 };

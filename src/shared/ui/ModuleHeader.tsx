@@ -103,7 +103,7 @@ export function ModuleHeader({ eyebrow, title, tabs = [], back, right }: ModuleH
         <div>
           <p
             className="mb-1"
-            style={{ fontSize: '10.5px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--hub-label)' }}
+            style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--hub-label)' }}
           >
             {eyebrow}
           </p>
@@ -127,7 +127,7 @@ export function ModuleHeader({ eyebrow, title, tabs = [], back, right }: ModuleH
                 onMouseMove={dragScroll.onMouseMove}
                 onClickCapture={dragScroll.onClickCapture}
               >
-                <nav className="flex items-center gap-1">
+                <nav className="flex items-center">
                   {tabs.map((tab) => (
                     <TabPill key={tab.to} tab={tab} active={isActive(tab)} />
                   ))}

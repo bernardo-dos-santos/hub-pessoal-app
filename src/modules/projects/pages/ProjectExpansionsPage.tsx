@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Card, Chip, EditableText, Eyebrow, ModuleHeader, Select, type Signal,
+  Card, Chip, EditableText, Eyebrow, ModuleHeader, Select, type Signal, useConfirm,
 } from '../../../shared/ui';
 import { getProjectTabs, projectEyebrow } from '../components/projectTabs';
 import { projectExpansionService } from '../services/projectExpansionService';
@@ -26,6 +26,7 @@ const COMPLEXITY_SIGNAL: Record<ExpansionComplexity, Signal> = {
 };
 
 export function ProjectExpansionsPage() {
+  const confirmAction = useConfirm();
   const { projectId = '' } = useParams();
   const [, bump] = useState(0);
   const refresh = () => bump((n) => n + 1);
@@ -76,8 +77,8 @@ export function ProjectExpansionsPage() {
     refresh();
   }
 
-  function discard(expansion: ProjectExpansion) {
-    if (!confirm(`Descartar "${expansion.title}"?`)) return;
+  async function discard(expansion: ProjectExpansion) {
+    if (!(await confirmAction(`Descartar "${expansion.title}"?`, { confirmLabel: 'Descartar' }))) return;
     projectExpansionService.remove(expansion.id);
     refresh();
   }
@@ -95,7 +96,7 @@ export function ProjectExpansionsPage() {
         <Eyebrow style={{ marginBottom: '8px' }}>Nova ideia</Eyebrow>
         <input
           className="w-full"
-          placeholder="Ex.: widget Android de dias pro concurso"
+          placeholder="Ex.: widget Android de dias pra prova"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
@@ -109,7 +110,7 @@ export function ProjectExpansionsPage() {
         />
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Categoria</span>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Categoria</span>
             <input
               className="w-full"
               placeholder={DEFAULT_EXPANSION_CATEGORY}
@@ -119,7 +120,7 @@ export function ProjectExpansionsPage() {
             />
           </label>
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Complexidade</span>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Complexidade</span>
             <Select className="w-full" value={complexity} onChange={(value) => setComplexity(value as ExpansionComplexity)}>
               <Select.Option value="low">Baixa</Select.Option>
               <Select.Option value="medium">Média</Select.Option>

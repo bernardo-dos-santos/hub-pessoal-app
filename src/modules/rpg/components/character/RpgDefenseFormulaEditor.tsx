@@ -16,7 +16,7 @@ export function RpgDefenseFormulaEditor({ onChange, rulesProfile, variables }: R
   return (
     <RpgPanel defaultOpen={false} title="Formula da Defesa" meta={roundedResult !== null ? `Atual: ${roundedResult}` : 'Invalida'}>
       <label className="grid gap-2">
-        <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Expressao</span>
+        <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Expressao</span>
         <textarea
           className="min-h-32 font-mono text-xs leading-5"
           value={rulesProfile.defenseFormula}
@@ -24,7 +24,7 @@ export function RpgDefenseFormulaEditor({ onChange, rulesProfile, variables }: R
         />
       </label>
       <label className="grid gap-2">
-        <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Nota</span>
+        <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-label)' }}>Nota</span>
         <textarea
           className="min-h-20 text-xs leading-5"
           value={rulesProfile.defenseFormulaNote}

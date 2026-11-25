@@ -86,6 +86,9 @@ const {
   clearFinanceFilters,
   withMonthParam,
   withMonthAndCategoryParams,
+  getMonthStartDay,
+  setMonthStartDay,
+  formatMonthRange,
 } = require(financePeriodPath);
 
 const {
@@ -370,11 +373,12 @@ assertMoney(calculateCardPaymentReceived(consolidatedTransactions), 500, "Pagame
 
 assertMoney(summary.income, 700, "Resumo não deve inflar receitas");
 assertMoney(summary.expenses, 620, "Resumo não deve inflar despesas com fatura ou transferência");
-// Modelo dois pools (060f286): compra no cartão não reduz saldo na hora, só o
-// pagamento da fatura reduz. Saldo = receita - despesas em dinheiro - pagamentos de fatura,
-// não receita - despesas totais (isso é calculateRealBalance, testado acima).
-assertMoney(summary.cashExpenses, 200, "Despesas em dinheiro devem excluir compras no cartão (pool de crédito)");
-assertMoney(summary.balance, 0, "Resumo deve calcular saldo em caixa (dois pools), não resultado real");
+// Regra única (2026-11): compra no cartão é gasto na data da compra e pagar a
+// fatura é neutro. "Sobrou" = recebi − gastei, o mesmo que calculateRealBalance.
+// (Substitui o modelo "dois pools", em que o cartão só entrava ao pagar a fatura.)
+assertMoney(summary.balance, 80, "Sobrou = receita real menos gasto real, cartão incluído");
+assertMoney(summary.balance, calculateRealBalance(consolidatedTransactions), "Resumo e resultado real usam a mesma regra");
+assert.equal("cashExpenses" in summary, false, "Resumo não expõe mais gasto 'só em dinheiro'");
 
 const categoryExpenses = calculateExpensesByCategory(consolidatedTransactions);
 assertMoney(categoryExpenses["Mercado"], 300, "Gastos por categoria devem somar gastos reais");
@@ -472,6 +476,14 @@ assertMoney(
   "Sem marcação, o valor atual cai pro total aportado",
 );
 assertMoney(calculatePosition([]).currentValue, 0, "Ativo sem movimento não pode virar NaN");
+// Money that moves after the last valuation moves the value too.
+const afterValuation = calculatePosition([
+  ...brlMovements,
+  { id: "m5", investmentId: "a", type: "contribution", date: "2026-07-10", amount: 200, source: "manual", createdAt: "2026-07-10T00:00:00.000Z" },
+  { id: "m6", investmentId: "a", type: "withdrawal", date: "2026-07-20", amount: 80, source: "manual", createdAt: "2026-07-20T00:00:00.000Z" },
+]);
+assertMoney(afterValuation.currentValue, 900, "Aporte e resgate depois da marcação mexem no valor atual");
+assertMoney(afterValuation.totalInvested, 820, "Total investido segue aportes menos resgates");
 
 // Câmbio por movimento é o que separa ganho do ativo de ganho do dólar.
 const usdPosition = calculatePosition([
@@ -530,33 +542,33 @@ assert.equal(isValidMonthKey("2026-13"), false, "isValidMonthKey deve rejeitar m
 assert.equal(isValidMonthKey("maio-2026"), false, "isValidMonthKey deve rejeitar formato fora de YYYY-MM");
 assert.equal(formatMonthLabel("2026-05").includes("2026"), true, "formatMonthLabel deve incluir o ano");
 assert.equal(getMonthKeyFromQuery("2026-13"), getCurrentMonthKey(), "Query month invalida deve cair no mes atual");
-assert.equal(withMonthParam("/financeiro/orcamentos", "2026-05"), "/financeiro/orcamentos?month=2026-05", "Links mensais devem preservar month");
+assert.equal(withMonthParam("/financeiro/configurar/orcamentos", "2026-05"), "/financeiro/configurar/orcamentos?month=2026-05", "Links mensais devem preservar month");
 assert.equal(
-  withMonthAndCategoryParams("/financeiro/transacoes", "2026-05", "Alimentação fora"),
-  "/financeiro/transacoes?month=2026-05&category=Alimenta%C3%A7%C3%A3o+fora",
+  withMonthAndCategoryParams("/financeiro/gastos", "2026-05", "Alimentação fora"),
+  "/financeiro/gastos?month=2026-05&category=Alimenta%C3%A7%C3%A3o+fora",
   "Helper deve montar month e category com encoding seguro",
 );
 assert.equal(
-  withFinanceFilters("/financeiro/transacoes", { month: "2026-05", category: "Cartão de crédito" }),
-  "/financeiro/transacoes?month=2026-05&category=Cart%C3%A3o+de+cr%C3%A9dito",
+  withFinanceFilters("/financeiro/gastos", { month: "2026-05", category: "Cartão de crédito" }),
+  "/financeiro/gastos?month=2026-05&category=Cart%C3%A3o+de+cr%C3%A9dito",
   "Helper deve codificar categorias com espaco e acento",
 );
 assert.equal(
-  withMonthAndCategoryParams("/financeiro/transacoes", "2026-05"),
-  "/financeiro/transacoes?month=2026-05",
+  withMonthAndCategoryParams("/financeiro/gastos", "2026-05"),
+  "/financeiro/gastos?month=2026-05",
   "Helper deve funcionar sem categoria",
 );
 assert.equal(
-  withoutFinanceFilter("/financeiro/transacoes", { month: "2026-05", category: "Mercado" }, "category"),
-  "/financeiro/transacoes?month=2026-05",
+  withoutFinanceFilter("/financeiro/gastos", { month: "2026-05", category: "Mercado" }, "category"),
+  "/financeiro/gastos?month=2026-05",
   "Remover categoria deve preservar month",
 );
 assert.equal(
-  withoutFinanceFilter("/financeiro/transacoes", { month: "2026-05", category: "Mercado" }, "month"),
-  "/financeiro/transacoes?category=Mercado",
+  withoutFinanceFilter("/financeiro/gastos", { month: "2026-05", category: "Mercado" }, "month"),
+  "/financeiro/gastos?category=Mercado",
   "Remover month deve preservar category",
 );
-assert.equal(clearFinanceFilters("/financeiro/transacoes"), "/financeiro/transacoes", "Limpar filtros deve remover month e category");
+assert.equal(clearFinanceFilters("/financeiro/gastos"), "/financeiro/gastos", "Limpar filtros deve remover month e category");
 
 assert.equal(normalizeText("Saúde CAFÉ"), "saude cafe", "normalizeText deve remover acentos e padronizar caixa");
 assert.equal(containsKeyword("Empréstimo contratado", "tim"), false, "Keyword curta não deve bater como substring indevida");
@@ -728,7 +740,7 @@ const manualSantanderIncome = normalizeTransactionDraft({
 assert.equal(manualSantanderIncome.category, "Renda", "Regra manual ativa deve vir antes da transferencia interna");
 assert.equal(manualSantanderIncome.kind, "income", "Indicio de conta propria vira income quando regra manual explicita receita");
 assert.equal(manualSantanderIncome.needsReview, false, "Regra manual explicita deve remover needsReview");
-assert.equal(manualSantanderIncome.manualCategory, true, "Regra manual aplicada no pipeline deve proteger categoria");
+assert.equal(manualSantanderIncome.manualCategory, false, "Regra no pipeline não trava a categoria: corrigir a regra pode reaplicar");
 assert.equal(manualSantanderIncome.classificationConfidence, "high", "Regra manual explicita deve ter confidence high");
 assert.equal(manualSantanderIncome.classificationReason.includes("Regra manual"), true, "Reason deve indicar regra manual");
 assertMoney(calculateRealIncome([manualSantanderIncome]), 2450, "Receita por regra manual entra em receitas reais");
@@ -1190,7 +1202,7 @@ assert.equal(
   "Par matched nao entra em comparacao mensal de categoria",
 );
 assertMoney(financeSummaryService.getFinanceSummary("2026-05").expenses, 0, "Summary mensal ignora par matched");
-transactionService.clearTransactions();
+transactionService.replaceTransactions([]);
 commitImportSelection([
   {
     transactionId: ifoodOriginalForPair.id,
@@ -1440,7 +1452,7 @@ assert.equal(nubankCsvPreview.normalizedTransactions.length, 2, "previewCsvImpor
 assert.equal(nubankCsvPreview.needsReviewCount, 2, "previewCsvImport deve contar pendências");
 
 categoryRuleService.clearCategoryRules();
-transactionService.clearTransactions();
+transactionService.replaceTransactions([]);
 const endToEndSantanderCsv = [
   "Data;Valor;Identificador;Descrição",
   "2026-05-21;2450;santander-rule-e2e;Transferência recebida pelo Pix - BERNARDO DOS SANTOS FERREIRA - •••.484.579-•• - BCO SANTANDER",
@@ -1454,14 +1466,14 @@ const endToEndSantanderRule = categoryRuleService.createCategoryRule({
 });
 assert.equal(endToEndSantanderRule.isActive, true, "Regra Santander/Bernardo criada para import deve vir ativa");
 assert.equal(categoryRuleService.listCategoryRules()[0].kind, "income", "Tipo sugerido da regra deve persistir no service");
-transactionService.clearTransactions();
+transactionService.replaceTransactions([]);
 assert.equal(categoryRuleService.listCategoryRules().some((rule) => rule.id === endToEndSantanderRule.id), true, "Limpar transacoes nao deve apagar regras manuais");
 const endToEndSantanderPreview = importService.previewCsvImport(endToEndSantanderCsv, nubankAccountProfile);
 const endToEndSantanderPreviewTransaction = endToEndSantanderPreview.normalizedTransactions[0];
 assert.equal(endToEndSantanderPreviewTransaction.category, "Renda", "Import preview com regra BCO SANTANDER deve gerar Renda");
 assert.equal(endToEndSantanderPreviewTransaction.kind, "income", "Import preview com regra BCO SANTANDER deve gerar income");
 assert.equal(endToEndSantanderPreviewTransaction.needsReview, false, "Import preview com regra Receita nao fica em revisao");
-assert.equal(endToEndSantanderPreviewTransaction.manualCategory, true, "Import preview com regra Receita deve marcar manualCategory");
+assert.equal(endToEndSantanderPreviewTransaction.manualCategory, false, "Import preview com regra Receita não trava a categoria");
 assert.equal(endToEndSantanderPreviewTransaction.classificationConfidence, "high", "Import preview com regra Receita deve ter confidence high");
 assert.equal(endToEndSantanderPreviewTransaction.classificationReason.includes("Regra manual"), true, "Import preview deve expor reason de regra manual");
 const endToEndSantanderCommit = commitImportSelection(
@@ -1730,7 +1742,7 @@ const noDedupCsvPreview = importService.previewCsvImport(dedupCsv, nubankAccount
 assert.equal(noDedupCsvPreview.normalizedTransactions.length, 3, "previewCsvImport sem existingTransactions deve continuar funcionando");
 assert.equal(noDedupCsvPreview.duplicateResults, undefined, "preview sem existingTransactions não precisa trazer dados de duplicidade");
 
-transactionService.clearTransactions();
+transactionService.replaceTransactions([]);
 assert.deepEqual(transactionService.listTransactions(), [], "transactionService vazio deve retornar [] sem storage");
 
 const serviceImportOnly = normalizeTransactionDraft({
@@ -1742,8 +1754,8 @@ const serviceImportOnly = normalizeTransactionDraft({
 transactionService.addTransactions([serviceImportOnly]);
 assert.equal(transactionService.listTransactions().length, 1, "addTransactions nao deve adicionar mocks automaticamente");
 assert.equal(transactionService.listTransactions()[0].id, "service-import-only", "addTransactions deve salvar apenas o lote recebido");
-transactionService.clearTransactions();
-assert.deepEqual(transactionService.listTransactions(), [], "clearTransactions deve limpar transacoes adicionadas");
+transactionService.replaceTransactions([]);
+assert.deepEqual(transactionService.listTransactions(), [], "replaceTransactions([]) deve limpar transacoes adicionadas");
 
 const dedupSelection = getDefaultSelectedImportItems(dedupCsvPreview);
 const exactSelection = dedupSelection.find((item) => item.duplicateStatus === "exact_duplicate");
@@ -2466,7 +2478,7 @@ assert.equal(applicationResult.updatedCount, 5, "Apply altera somente matches se
 assert.equal(unappliedTransferMatch.category, pendingTransferRuleTarget.category, "Apply nao altera match desmarcado");
 assert.equal(appliedBernardoIncome.category, "Renda", "Apply atualiza category");
 assert.equal(appliedBernardoIncome.kind, "income", "Apply atualiza kind");
-assert.equal(appliedBernardoIncome.manualCategory, true, "Apply marca manualCategory true");
+assert.equal(appliedBernardoIncome.manualCategory, false, "Aplicar regra não trava a categoria");
 assert.equal(appliedBernardoIncome.needsReview, false, "Apply marca needsReview false");
 assert.equal(appliedBernardoIncome.classificationConfidence, "high", "Apply sobe confidence para high");
 assert.match(appliedBernardoIncome.classificationReason, /Regra manual aplicada nas pendencias/, "Apply registra regra manual no motivo");
@@ -2474,7 +2486,7 @@ assert.equal(appliedAutomaticBernardoIncome.category, "Renda", "Santander/Bernar
 assert.equal(appliedAutomaticBernardoIncome.kind, "income", "Apply transforma transfer automatico em income quando regra Receita bate");
 assert.equal(appliedAutomaticExpense.kind, "expense", "Apply transforma transfer automatico em expense quando regra Despesa bate");
 assert.equal(appliedAutomaticTransfer.kind, "transfer", "Apply mantem transfer quando regra explicita Transferencia bate");
-assert.equal(appliedAutomaticBernardoIncome.manualCategory, true, "Apply automatico marca manualCategory true");
+assert.equal(appliedAutomaticBernardoIncome.manualCategory, false, "Aplicar regra sobre automático não trava a categoria");
 assert.equal(appliedAutomaticBernardoIncome.needsReview, false, "Apply automatico mantem needsReview false");
 assert.match(appliedAutomaticBernardoIncome.classificationReason, /classificacao automatica/, "Apply automatico registra regra manual sobre classificacao automatica");
 assert.equal(transactionService.listRequiredReviewTransactions().some((item) => item.id === pendingBernardoRuleTarget.id), false, "Apply reduz revisao necessaria");
@@ -2674,7 +2686,7 @@ assertMoney(calculateBudgetUsage(personalBudget, budgetTransactions).spent, 270,
 assertMoney(calculateBudgetUsage(businessBudget, budgetTransactions).spent, 60, "Orcamento empresa respeita escopo");
 assertMoney(calculateBudgetUsage(consolidatedBudget, budgetTransactions).spent, 330, "Orcamento consolidado considera pessoal e empresa");
 assert.equal(calculateBudgetUsage(personalBudget, budgetTransactions).status, "exceeded", "Orcamento deve marcar exceeded acima do limite");
-const attentionBudget = budgetService.createBudget({ name: "Atencao Mercado", category: "Mercado", limit: 350, scope: "pessoal" });
+const attentionBudget = budgetService.createBudget({ name: "Atencao Mercado", category: "Mercado", limit: 320, scope: "pessoal" });
 assert.equal(calculateBudgetUsage(attentionBudget, budgetTransactions).status, "attention", "Orcamento deve marcar attention perto do limite");
 const budgetDashboardSummary = budgetService.getBudgetsSummary(budgetTransactions);
 assert.equal(budgetDashboardSummary.totalActive >= 4, true, "Resumo de orcamento deve usar budgets salvos");
@@ -2735,12 +2747,11 @@ const dashboardMaySummary = financeSummaryService.getFinanceSummary("2026-05");
 const dashboardJuneSummary = financeSummaryService.getFinanceSummary("2026-06");
 assertMoney(dashboardMaySummary.income, 1800, "Summary mensal inclui income em receitas reais");
 assertMoney(dashboardMaySummary.expenses, 350, "Summary mensal inclui expense e card_purchase em despesas reais");
-// Modelo dois pools (060f286): saldo mensal = receita - despesas em dinheiro - pagamentos de fatura,
-// nao receita - despesas totais (compra no cartao nao reduz saldo na hora de comprar).
+// Regra única: sobrou = recebi − gastei (cartão na data da compra, fatura neutra).
 assertMoney(
   dashboardMaySummary.balance,
-  dashboardMaySummary.income - dashboardMaySummary.cashExpenses - dashboardMaySummary.cardPayments,
-  "Saldo mensal (dois pools) deve ser receita menos despesas em dinheiro menos pagamentos de fatura",
+  dashboardMaySummary.income - dashboardMaySummary.expenses,
+  "Sobrou no mês deve ser receita menos gasto real",
 );
 assertMoney(dashboardJuneSummary.expenses, 880, "Summary mensal deve usar o mes selecionado");
 assert.equal(dashboardMaySummary.transactionCount, 9, "Transacao de outro mes nao entra no summary mensal");
@@ -2855,9 +2866,8 @@ assertMoney(mayComparison.currentSummary.income, 1500, "Receita atual da compara
 assertMoney(mayComparison.previousSummary.income, 1000, "Receita anterior da comparacao deve usar mes anterior");
 assertMoney(mayComparison.currentSummary.expenses, 510, "Despesas atuais comparam gasto liquido com refund");
 assertMoney(mayComparison.previousSummary.expenses, 350, "Despesas anteriores ignoram transfer, pagamento e abatem refund");
-// Modelo dois pools: saldo = receita - despesas em dinheiro - pagamentos de fatura.
-assertMoney(mayComparison.currentSummary.balance, 590, "Resultado atual (dois pools) deve usar resumo mensal liquido");
-assertMoney(mayComparison.previousSummary.balance, 350, "Resultado anterior (dois pools) deve usar resumo mensal liquido");
+assertMoney(mayComparison.currentSummary.balance, 990, "Sobrou atual = receita menos gasto liquido");
+assertMoney(mayComparison.previousSummary.balance, 650, "Sobrou anterior = receita menos gasto liquido");
 assertMoney(mayComparison.deltas.cardPurchases.currentValue, 200, "Compras no cartao atuais devem comparar por mes");
 assertMoney(mayComparison.deltas.cardPurchases.previousValue, 100, "Compras no cartao anteriores devem comparar por mes");
 assert.equal(mayComparison.deltas.transactionCount.difference, -1, "Quantidade de transacoes deve comparar apenas os dois meses");
@@ -2940,7 +2950,7 @@ assert.equal(chartEvolution.length, 6, "Evolucao mensal deve retornar 6 meses");
 assert.equal(chartEvolution.at(-1).month, "2026-05", "Evolucao mensal deve terminar no mes selecionado");
 assertMoney(chartEvolution.at(-1).expenses, 60, "Graficos devem usar despesas reais liquidas");
 assertMoney(chartEvolution.at(-1).income, 1000, "Graficos devem usar receitas reais do summary");
-assertMoney(chartEvolution.at(-1).balance, 340, "Graficos devem usar saldo em caixa (dois pools)");
+assertMoney(chartEvolution.at(-1).balance, 940, "Graficos devem usar sobrou = receita menos gasto");
 const chartCategories = financeSummaryService.getCategoryExpenses("2026-05");
 assert.equal(chartCategories.some((item) => item.category === "Transferência interna"), false, "Graficos de categoria nao devem incluir transferencia interna");
 assert.equal(chartCategories.some((item) => item.category === "Pagamento de fatura"), false, "Graficos de categoria nao devem incluir pagamento de fatura");
@@ -2949,5 +2959,262 @@ assertMoney(chartCategories.find((item) => item.category === "Mercado")?.amount 
 categoryRuleService.clearCategoryRules();
 categoryService.clearCustomCategories();
 budgetService.clearBudgets();
+
+// ── Mês financeiro (dia de virada) ───────────────────────────────────────────
+// src/shared/finance/financeMonth.js — a regra única de "a que mês pertence",
+// usada pelas telas, pela Íris e pelos scripts do servidor.
+{
+  const {
+    clampStartDay,
+    financialMonthOf,
+    financialMonthRange,
+  } = await import("../src/shared/finance/financeMonth.js");
+
+  assert.equal(getMonthStartDay(), 1, "Sem configuração, o mês financeiro é o mês do calendário");
+  assert.deepEqual(financialMonthRange("2026-02", 1), { start: "2026-02-01", end: "2026-02-28" }, "Dia 1 = mês do calendário");
+  assert.deepEqual(financialMonthRange("2026-10", 6), { start: "2026-10-06", end: "2026-11-05" }, "Dia 6 (fechamento no 5): 6 out – 5 nov é outubro");
+  assert.deepEqual(financialMonthRange("2026-11", 25), { start: "2026-10-25", end: "2026-11-24" }, "Dia 25 (salário): 25 out – 24 nov é novembro");
+  assert.deepEqual(financialMonthRange("2026-03", 31), { start: "2026-02-28", end: "2026-03-30" }, "Dia 31 cai no último dia de fevereiro");
+  assert.equal(financialMonthOf("2026-11-05", 6), "2026-10", "Dia 5 ainda é do mês que começou dia 6 anterior");
+  assert.equal(financialMonthOf("2026-11-06", 6), "2026-11", "Dia 6 abre o mês seguinte");
+  assert.equal(clampStartDay("x"), 1, "Valor inválido vira dia 1");
+  assert.equal(clampStartDay(40), 31, "Dia acima de 31 é limitado");
+
+  // Os meses se encaixam sem buraco nem sobreposição, para qualquer dia de virada.
+  for (let day = 1; day <= 31; day += 1) {
+    let previousEnd = null;
+    for (let index = 0; index < 24; index += 1) {
+      const key = `${2025 + Math.floor(index / 12)}-${String((index % 12) + 1).padStart(2, "0")}`;
+      const { start, end } = financialMonthRange(key, day);
+      assert.equal(financialMonthOf(start, day), key, `Início de ${key} (dia ${day}) pertence ao próprio mês`);
+      assert.equal(financialMonthOf(end, day), key, `Fim de ${key} (dia ${day}) pertence ao próprio mês`);
+      if (previousEnd) {
+        const next = new Date(`${previousEnd}T00:00:00Z`);
+        next.setUTCDate(next.getUTCDate() + 1);
+        assert.equal(next.toISOString().slice(0, 10), start, `Mês ${key} (dia ${day}) começa logo após o anterior`);
+      }
+      previousEnd = end;
+    }
+  }
+
+  const cycleTransactions = [
+    transaction({ id: "cycle-salary", date: "2026-10-06", amount: 3000, category: "Salário", kind: "income" }),
+    transaction({ id: "cycle-card", date: "2026-10-20", amount: -400, category: "Mercado", kind: "card_purchase", method: "credito", accountType: "credit_card" }),
+    transaction({ id: "cycle-pix", date: "2026-11-05", amount: -100, category: "Mercado", kind: "expense" }),
+    transaction({ id: "cycle-bill", date: "2026-11-05", amount: -400, category: "Pagamento de fatura", kind: "card_payment" }),
+    transaction({ id: "cycle-next", date: "2026-11-06", amount: -50, category: "Mercado", kind: "expense" }),
+  ];
+
+  // Fora do navegador o localStorage não existe: um adapter em memória deixa o
+  // dia de virada ser salvo e lido de volta como no app.
+  const { setActiveAdapter } = require(path.join(projectRoot, "src", "core", "storage", "storage.adapter.ts"));
+  const memoryStore = new Map();
+  setActiveAdapter({
+    getItem: (key) => (memoryStore.has(key) ? memoryStore.get(key) : null),
+    setItem: (key, value) => memoryStore.set(key, value),
+    removeItem: (key) => memoryStore.delete(key),
+    clear: () => memoryStore.clear(),
+  });
+
+  setMonthStartDay(6);
+  assert.equal(getMonthStartDay(), 6, "Dia de virada salvo e lido de volta");
+  assert.equal(formatMonthRange("2026-10").length > 0, true, "Com virada fora do dia 1 a tela mostra o período");
+  const october = filterTransactionsBySelectedMonth(cycleTransactions, "2026-10");
+  assert.deepEqual(october.map((item) => item.id).sort(), ["cycle-bill", "cycle-card", "cycle-pix", "cycle-salary"], "Com virada no dia 6, 5/nov é outubro e 6/nov não");
+  const octoberSummary = calculateFinanceSummary(october);
+  assertMoney(octoberSummary.expenses, 500, "Gastei inclui o cartão na data da compra");
+  assertMoney(octoberSummary.cardPurchases, 400, "Parte do gasto feita no cartão fica visível");
+  assertMoney(octoberSummary.balance, 2500, "Pagar a fatura não conta o mesmo gasto duas vezes");
+
+  setMonthStartDay(1);
+  assert.deepEqual(
+    filterTransactionsBySelectedMonth(cycleTransactions, "2026-10").map((item) => item.id).sort(),
+    ["cycle-card", "cycle-salary"],
+    "Voltando ao dia 1, o filtro volta ao mês do calendário",
+  );
+}
+
+{
+  // Fila de um toque: as sugestões vêm do histórico do estabelecimento primeiro,
+  // e "lembrar para as próximas" resolve as outras pendências iguais.
+  const { suggestReviewCategories } = require(path.join(projectRoot, "src", "modules", "finance", "services", "reviewSuggestionService.ts"));
+  const pendingIfood = transaction({ id: "quick-1", description: "IFOOD *RESTAURANTE", amount: -42, category: "Despesa a revisar", kind: "expense", needsReview: true, classificationConfidence: "low" });
+  const history = [
+    pendingIfood,
+    transaction({ id: "quick-h1", description: "IFOOD *RESTAURANTE", amount: -30, category: "Lazer", kind: "expense", reviewedAt: createdAt }),
+    transaction({ id: "quick-h2", description: "Supermercado Bom Preço", amount: -200, category: "Mercado", kind: "expense" }),
+    transaction({ id: "quick-h3", description: "Supermercado Bom Preço", amount: -150, category: "Mercado", kind: "expense" }),
+    transaction({ id: "quick-h4", description: "Salário", amount: 3000, category: "Renda", kind: "income" }),
+    transaction({ id: "quick-h5", description: "Pix enviado", amount: -50, category: "Transferência interna", kind: "transfer" }),
+  ];
+  const suggestions = suggestReviewCategories(pendingIfood, history, categoryService.getAvailableCategories());
+  assert.equal(suggestions[0], "Lazer", "O que o estabelecimento já foi vem primeiro");
+  assert.equal(suggestions.length, 5, "Cinco respostas de um toque");
+  assert.equal(new Set(suggestions).size, suggestions.length, "Sem sugestão repetida");
+  assert.equal(suggestions.includes("Renda"), false, "Uma saída não sugere categoria de entrada");
+  assert.equal(
+    suggestions.some((category) => ["Despesa a revisar", "Entrada a revisar", "Transferência interna"].includes(category)),
+    false,
+    "Nem a própria pendência nem a transferência (que tem botão) viram sugestão",
+  );
+  assert.equal(
+    suggestReviewCategories(transaction({ id: "quick-in", description: "PIX RECEBIDO FULANO", amount: 100, category: "Entrada a revisar", kind: "review" }), history, categoryService.getAvailableCategories())[0],
+    "Renda",
+    "Uma entrada sugere categorias de entrada",
+  );
+
+  categoryRuleService.clearCategoryRules();
+  transactionService.replaceTransactions([
+    pendingIfood,
+    transaction({ id: "quick-2", date: "2026-05-12", description: "IFOOD *RESTAURANTE", amount: -55, category: "Despesa a revisar", kind: "expense", needsReview: true, classificationConfidence: "low" }),
+    transaction({ id: "quick-3", date: "2026-05-13", description: "Padaria Central", amount: -12, category: "Despesa a revisar", kind: "expense", needsReview: true, classificationConfidence: "low" }),
+  ]);
+  transactionService.reviewTransaction("quick-1", { category: "Alimentação fora", kind: "expense", needsReview: false, reviewedBy: "quick_action" });
+  const rule = categoryRuleService.createRuleFromTransaction(pendingIfood, "Alimentação fora", undefined, "expense");
+  const sameRuleIds = categoryRuleApplicationService
+    .previewApplyActiveRulesToEligibleTransactions()
+    .matches.filter((match) => match.matchedRuleId === rule.id && match.matchOrigin === "required_review")
+    .map((match) => match.transactionId);
+  assert.deepEqual(sameRuleIds, ["quick-2"], "A regra nova pega a outra pendência igual, não a padaria");
+  categoryRuleApplicationService.applyActiveRulesToEligibleTransactions(sameRuleIds);
+  assert.deepEqual(
+    transactionService.listRequiredReviewTransactions().map((item) => item.id),
+    ["quick-3"],
+    "Depois de um toque com 'lembrar', só sobra a pendência diferente",
+  );
+  categoryRuleService.clearCategoryRules();
+  transactionService.replaceTransactions([]);
+}
+
+// ── Auditoria 2026-11-22: leitura de valores e duplicatas no mesmo dia ──────
+{
+  const { parseMoneyText } = require(path.join(projectRoot, "src", "modules", "finance", "utils", "moneyParsing.ts"));
+  assert.equal(parseMoneyText("1.234,56"), 1234.56, "pt-BR com milhar");
+  assert.equal(parseMoneyText("1.200"), 1200, "1.200 é mil e duzentos, não 1,2");
+  assert.equal(parseMoneyText("15,90"), 15.9, "vírgula decimal");
+  assert.equal(parseMoneyText("15.90"), 15.9, "ponto decimal");
+  assert.equal(parseMoneyText("1,234.56"), 1234.56, "formato en-US");
+  assert.equal(parseMoneyText("1.234,56-"), -1234.56, "sinal no fim");
+  assert.equal(parseMoneyText("(30,00)"), -30, "parênteses = negativo");
+  assert.equal(parseMoneyText("R$ -8,00"), -8, "R$ com sinal");
+  assert.equal(parseMoneyText("—"), null, "ilegível vira null, não 0");
+
+  const sameDay = importService.previewImportDrafts([
+    { date: "2026-11-05", description: "Uber *Trip", amount: -15.9, accountName: "Nubank Cartão", source: "nubank_credit_card", accountType: "credit_card" },
+    { date: "2026-11-05", description: "Uber *Trip", amount: -15.9, accountName: "Nubank Cartão", source: "nubank_credit_card", accountType: "credit_card" },
+  ], []);
+  const sameDayIds = sameDay.normalizedTransactions.map((t) => t.id);
+  assert.equal(new Set(sameDayIds).size, 2, "Duas compras iguais no mesmo dia ganham ids diferentes");
+  const sameDayCommit = commitImportSelection(getDefaultSelectedImportItems(sameDay), [], "nubank_credit_card");
+  assert.equal(sameDayCommit.importedCount, 2, "Duas compras iguais no mesmo dia entram as duas");
+
+  const again = importService.previewImportDrafts([
+    { date: "2026-11-05", description: "Uber *Trip", amount: -15.9, accountName: "Nubank Cartão", source: "nubank_credit_card", accountType: "credit_card" },
+    { date: "2026-11-05", description: "Uber *Trip", amount: -15.9, accountName: "Nubank Cartão", source: "nubank_credit_card", accountType: "credit_card" },
+    { date: "2026-11-05", description: "Uber *Trip", amount: -15.9, accountName: "Nubank Cartão", source: "nubank_credit_card", accountType: "credit_card" },
+  ], sameDayCommit.importedTransactions);
+  const againStatus = again.duplicateResults.map((r) => r.duplicateStatus);
+  assert.deepEqual(againStatus, ["exact_duplicate", "exact_duplicate", "possible_duplicate"], "Reimportar bloqueia as duas salvas; a terceira igual fica para escolher");
+}
+
+// Cartão: anyone can register a card; the bill to pay is the closed unpaid one;
+// refunds lower it; the free limit counts it and the installments still ahead.
+{
+  const { cardService } = require(path.join(projectRoot, "src", "modules", "finance", "services", "cardService.ts"));
+  const { invoiceService } = require(path.join(projectRoot, "src", "modules", "finance", "services", "invoiceService.ts"));
+  const dayOffset = (n) => {
+    const d = new Date();
+    d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const closingDay = Number(dayOffset(-5).slice(8));
+  const card = cardService.createCard({ name: "Cartão Teste", limit: 3000, closingDay, dueDay: closingDay });
+  assert.ok(card.accountId, "Cartão novo ganha uma conta própria");
+  // The test runs as the owner, whose legacy Nubank card would come first.
+  cardService.updateCard("nubank-cartao-principal", { isActive: false });
+  const base = { category: "Outros", scope: "pessoal", method: "credito", source: "manual", needsReview: false, createdAt: "", updatedAt: "" };
+  transactionService.replaceTransactions([
+    // No accountId: typed by hand — still the card's.
+    { ...base, id: "card-closed-1", date: dayOffset(-10), description: "Loja A", amount: -500, kind: "card_purchase" },
+    { ...base, id: "card-closed-refund", date: dayOffset(-8), description: "Estorno Loja A", amount: 120, kind: "refund" },
+    { ...base, id: "card-open-1", date: dayOffset(-1), description: "Loja B", amount: -80, kind: "card_purchase", accountId: card.accountId },
+    { ...base, id: "card-old-installments", date: dayOffset(-70), description: "Geladeira", amount: -1000, kind: "card_purchase", accountId: card.accountId, installmentCount: 10, installmentValue: 100 },
+  ]);
+  const usage = invoiceService.getCardUsage();
+  assert.ok(usage?.toPay, "Fatura fechada sem pagamento é a fatura a pagar");
+  assertMoney(usage.toPay.total, 380, "Estorno abate a fatura fechada e compra sem conta entra nela");
+  assertMoney(usage.open.total, 80, "Fatura aberta só com a compra do período");
+  const plan = invoiceService.listInstallmentPlans().find((item) => item.transaction.id === "card-old-installments");
+  assert.ok(plan && plan.remaining > 0, "Parcelamento antigo ainda tem parcelas");
+  assertMoney(usage.installmentsAhead, plan.remaining * 100, "Parcelas de compras antigas seguram o limite");
+  assertMoney(usage.free, 3000 - 380 - 80 - plan.remaining * 100, "Limite livre desconta fatura a pagar, aberta e parcelas");
+
+  transactionService.replaceTransactions([
+    ...transactionService.listTransactions(),
+    { ...base, id: "card-paid", date: dayOffset(-2), description: "Pagamento de fatura", amount: -380, kind: "card_payment", method: "debito" },
+  ]);
+  assert.equal(invoiceService.getCardUsage().toPay, null, "Fatura paga deixa de ser a fatura a pagar");
+
+  // A second card: its own lines only; lines without an account stay with the first.
+  const second = cardService.createCard({ name: "Cartão Dois", limit: 1000, closingDay, dueDay: closingDay });
+  transactionService.replaceTransactions([
+    { ...base, id: "two-1", date: dayOffset(-1), description: "Loja C", amount: -40, kind: "card_purchase", accountId: second.accountId },
+    { ...base, id: "first-manual", date: dayOffset(-1), description: "Loja D", amount: -15, kind: "card_purchase" },
+  ]);
+  assertMoney(invoiceService.getCardUsage(second.id).open.total, 40, "Segundo cartão só com as compras da conta dele");
+  assertMoney(invoiceService.getCardUsage().open.total, 15, "Compra sem conta fica só no primeiro cartão");
+  assert.equal(invoiceService.listCardUsages().length, 2, "Resumo lista os dois cartões");
+  transactionService.replaceTransactions([]);
+}
+
+// Fixed costs: a payee paid with a stable amount in 2 of the last 3 months and
+// not yet this month is reserved before "dá para gastar por dia".
+{
+  const { listUpcomingFixedCosts } = require(path.join(projectRoot, "src", "modules", "finance", "services", "fixedCostService.ts"));
+  const tx = (id, date, description, amount, category = "Outros") => ({
+    id, date, description, amount, category, kind: "expense", scope: "pessoal", method: "debito", source: "manual", needsReview: false, createdAt: "", updatedAt: "",
+  });
+  const list = [
+    tx("rent-12", "2026-12-15", "Transferência enviada pelo Pix - Imobiliaria Sol", -1200, "Moradia"),
+    tx("rent-01", "2027-01-15", "Transferência enviada pelo Pix - Imobiliaria Sol", -1200, "Moradia"),
+    tx("rent-02", "2027-02-15", "Transferência enviada pelo Pix - Imobiliaria Sol", -1250, "Moradia"),
+    tx("net-01", "2027-01-15", "Compra no débito - Netflix", -55.9),
+    tx("net-02", "2027-02-15", "Compra no débito - Netflix", -55.9),
+    tx("net-03", "2027-03-10", "Compra no débito - Netflix", -55.9),
+    tx("market-01", "2027-01-15", "Compra no débito - Mercado Bom", -300),
+    tx("market-02", "2027-02-15", "Compra no débito - Mercado Bom", -900),
+    tx("pix-01", "2027-01-15", "Pix enviado", -50),
+    tx("pix-02", "2027-02-15", "Pix enviado", -50),
+  ];
+  const upcoming = listUpcomingFixedCosts(list, "2027-03");
+  assert.deepEqual(upcoming.map((item) => item.merchant), ["Imobiliaria Sol"], "Só o aluguel estável e ainda não pago conta como fixo");
+  assertMoney(upcoming[0].amount, 1200, "Valor típico é a mediana dos meses");
+}
+
+// Reimbursement actions: undoing a pair sticks; a refund can be paired by hand or kept without one.
+{
+  const line = (id, date, description, amount, kind) => ({
+    id, date, description, amount, kind, category: "Alimentação fora", scope: "pessoal", method: "debito", source: "manual", needsReview: false, createdAt: "", updatedAt: "",
+  });
+  transactionService.replaceTransactions([
+    line("ifood-buy", "2026-07-01", "Ifood", -42, "expense"),
+    line("ifood-refund", "2026-07-02", "Estorno Ifood", 42, "refund"),
+  ]);
+  reimbursementService.pairManually("ifood-buy", "ifood-refund");
+  const pair = reimbursementService.listReimbursementPairs()[0];
+  assert.ok(pair, "Pareamento à mão cria o par");
+  reimbursementService.unpairReimbursementPair(pair.pairId);
+  reimbursementService.applyReimbursementPairs();
+  assert.equal(reimbursementService.listReimbursementPairs().length, 0, "Par desfeito não volta na próxima importação");
+  assert.equal(reimbursementService.listUnmatchedRefundCandidates().length, 0, "Estorno de par desfeito sai da lista de sem par");
+
+
+  transactionService.replaceTransactions([line("lone-refund", "2026-07-03", "Estorno loja x", 15, "refund")]);
+  const lone = reimbursementService.listUnmatchedRefundCandidates();
+  assert.equal(lone.length, 1, "Estorno sem compra aparece como sem par");
+  reimbursementService.ignoreRefund("lone-refund");
+  assert.equal(reimbursementService.listUnmatchedRefundCandidates().length, 0, "Não tem par tira o estorno da lista");
+  transactionService.replaceTransactions([]);
+}
 
 console.log("Finance module check passed.");

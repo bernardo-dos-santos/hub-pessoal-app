@@ -10,7 +10,6 @@ export const plannerModuleConfig: ModuleDefinition = {
   status: 'active',
   accent: 'bg-indigo-600',
   order: 50,
-  showInHome: true,
   category: 'productivity',
   supportsSearch: false,
   supportsAiSummary: false,

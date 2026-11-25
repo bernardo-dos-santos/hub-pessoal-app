@@ -1,24 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Card, Chip, EditableText, ModuleHeader, ProgressBar, Select } from '../../../shared/ui';
+import { ModuleAttentionCard } from '../../../core/alerts/ModuleAttentionCard';
+import { Card, EditableText, ModuleHeader, ProgressBar, Select } from '../../../shared/ui';
+import { projectAlertProvider } from '../alerts/projectAlertProvider';
 import { gitLogService, type GitRepo } from '../services/gitLogService';
 import { daysSince, projectService } from '../services/projectService';
 import {
   PROJECT_KIND_LABEL, PROJECT_STATUS_LABEL, type Project, type ProjectKind,
 } from '../types/project';
-
-function StalledBanner({ projects }: { projects: Project[] }) {
-  if (projects.length === 0) return null;
-  return (
-    <Card>
-      <p className="text-sm" style={{ color: 'var(--hub-warning)' }}>
-        {projects.length === 1
-          ? `${projects[0].name} está parado há ${daysSince(projects[0].lastActivityAt)} dias.`
-          : `${projects.length} projetos parados há mais de duas semanas.`}
-      </p>
-    </Card>
-  );
-}
 
 function ProjectCard({ project, onRename }: { project: Project; onRename: (p: Project, value: string) => void }) {
   const progress = projectService.getProgress(project.id);
@@ -30,7 +19,7 @@ function ProjectCard({ project, onRename }: { project: Project; onRename: (p: Pr
   return (
     <Link to={`/projetos/${project.id}`} style={{ textDecoration: 'none', display: 'block' }}>
       <Card>
-        <div style={{ opacity: inactive ? 0.6 : 1 }}>
+        <div>
           <div className="flex items-baseline justify-between gap-3">
             <EditableText
               className="min-w-0"
@@ -39,7 +28,7 @@ function ProjectCard({ project, onRename }: { project: Project; onRename: (p: Pr
               onSave={(value) => onRename(project, value)}
               ariaLabel={`Renomear projeto ${project.name}`}
             >
-              <span className="truncate text-base font-medium" style={{ color: 'var(--hub-text)' }}>{project.name}</span>
+              <span className="truncate text-base font-medium" style={{ color: inactive ? 'var(--hub-muted)' : 'var(--hub-text)' }}>{project.name}</span>
             </EditableText>
             {inactive
               ? <span className="shrink-0 text-xs" style={{ color: 'var(--hub-muted)' }}>{PROJECT_STATUS_LABEL[project.status]}</span>
@@ -111,7 +100,15 @@ export function ProjectsListPage() {
     }
   }
 
-  const stalled = projects.filter((p) => projectService.isStalled(p));
+  const active = projects.filter((p) => p.status === 'active');
+  const openTasks = active.reduce((sum, p) => sum + projectService.openTaskCount(p.id), 0);
+  const latest = [...active].sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt))[0];
+  const latestIdle = latest ? daysSince(latest.lastActivityAt) : null;
+  const sentence = active.length === 0
+    ? (projects.length === 0
+      ? 'Nenhum projeto ainda. Um projeto é algo que você constrói ao longo do tempo, com frentes e tarefas — diferente de uma meta, que é um objetivo com prazo.'
+      : 'Nenhum projeto ativo agora — os pausados e concluídos estão logo abaixo.')
+    : `${openTasks} ${openTasks === 1 ? 'tarefa aberta' : 'tarefas abertas'} entre eles. Mexido por último: ${latest.name}, ${latestIdle === 0 ? 'hoje' : latestIdle === 1 ? 'ontem' : `há ${latestIdle} dias`}.`;
 
   return (
     <div className="space-y-4">
@@ -134,7 +131,7 @@ export function ProjectsListPage() {
       {creating && (
         <Card>
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
               Nome do projeto
             </span>
             <input
@@ -147,7 +144,7 @@ export function ProjectsListPage() {
             />
           </label>
           <label className="mt-4 block">
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
               Natureza
             </span>
             <Select className="w-full" value={kind} onChange={(v) => setKind(v as ProjectKind)}>
@@ -162,7 +159,7 @@ export function ProjectsListPage() {
               projeto não-código teria de ignorar. */}
           {kind === 'code' && (
             <label className="mt-4 block">
-              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                 Repositório git
               </span>
               <Select className="w-full" value={repoId} onChange={setRepoId} disabled={reposLoading}>
@@ -184,24 +181,28 @@ export function ProjectsListPage() {
         </Card>
       )}
 
-      <StalledBanner projects={stalled} />
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-4">
+          <Card hero>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>Em andamento</p>
+            <div className="mt-3 flex items-baseline gap-3">
+              <span className="tabular-nums" style={{ fontSize: '58px', lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+                {active.length}
+              </span>
+              <span className="text-sm" style={{ color: 'var(--hub-muted)' }}>{active.length === 1 ? 'projeto ativo' : 'projetos ativos'}</span>
+            </div>
+            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--hub-text-body)' }}>{sentence}</p>
+          </Card>
 
-      {projects.length === 0 && !creating ? (
-        <Card>
-          <p className="text-sm" style={{ color: 'var(--hub-muted)' }}>
-            Nenhum projeto ainda. Um projeto é algo que você constrói ao longo do tempo, com frentes
-            e tarefas — diferente de uma meta, que é um número com prazo.
-          </p>
-        </Card>
-      ) : (
-        projects.map((p) => <ProjectCard key={p.id} project={p} onRename={renameProject} />)
-      )}
+          <ModuleAttentionCard provider={projectAlertProvider} className="lg:hidden" />
 
-      {projects.length > 0 && (
-        <p className="pt-2 text-center text-xs" style={{ color: 'var(--hub-disabled)' }}>
-          <Chip>{projects.length}</Chip> projeto{projects.length === 1 ? '' : 's'}
-        </p>
-      )}
+          {projects.map((p) => <ProjectCard key={p.id} project={p} onRename={renameProject} />)}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <ModuleAttentionCard provider={projectAlertProvider} className="hidden lg:block" />
+        </div>
+      </div>
     </div>
   );
 }

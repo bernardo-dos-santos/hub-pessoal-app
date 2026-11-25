@@ -4,98 +4,63 @@
  * Agendar via Task Scheduler: todo dia às 07h00 (e opcionalmente às 20h para alerta de sessão).
  *
  * Alertas implementados:
- *  1. Edital do CBMSC detectado
- *  2. Edital da ABIN detectado
- *  3. Prova na faculdade amanhã ou hoje
- *  4. TAF: item abaixo do mínimo sem treino há mais de 5 dias
- *  5. Check-in ABIN todo domingo
- *  6. Sessão de hoje não registrada (dispara se rodado às 20h+)
- *  7. Sequência em risco (quarta ou depois, zero conclusões na semana)
- *  8. Semana abaixo de 50% (quinta ou sexta)
- *  9. Prova em 3 dias sem revisão concluída
- * 10. Budget excedendo 90%
- * 11. Fatura do cartão vencendo em ≤2 dias
- * 12. Meta perto do prazo (≤5 dias, progresso < 70%)
- * 13. Energia baixa no check-in de hoje
+ *  1. Prova na faculdade amanhã ou hoje
+ *  2. Sem treino há 5 dias ou mais (só enquanto o hábito existe: último treino ≤ 21 dias)
+ *  3–6 só se o plano semanal está sendo seguido (sessão marcada nos últimos 14 dias)
+ *  3. Sessão de hoje não registrada (dispara se rodado às 20h+)
+ *  4. Sequência em risco (quarta ou depois, zero conclusões na semana)
+ *  5. Semana abaixo de 50% (quinta ou sexta)
+ *  6. Prova em 3 dias sem revisão concluída
+ *  7. Budget excedendo 90%
+ *  8. Fatura do cartão vencendo em ≤2 dias
+ *  9. Meta perto do prazo (≤5 dias, progresso < 70%)
+ * 10. Energia baixa no check-in de hoje
  *
  * Uso:
  *   node scripts/schedule/send-daily-push.js
  */
 
 import { createLogger } from '../lib/logger.js';
-import { DatabaseSync } from 'node:sqlite';
+import { openHubDb, ownerKv } from '../lib/hubDb.js';
+import { HUB_URL, waitForHub } from '../lib/hubApi.js';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import {
+  clampStartDay,
+  currentFinancialMonth,
+  isInFinancialMonth,
+  MONTH_START_DAY_KEY,
+} from '../../src/shared/finance/financeMonth.js';
+import { budgetLimitOf, budgetSpent } from '../../src/shared/finance/financeTotals.js';
+import { isStudyPlanInUse, isTrainingInUse } from '../../src/shared/activity/recentActivity.js';
+import { localDayKey } from '../../src/shared/dates/localDay.js';
 
 const log = createLogger('send-daily-push');
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const HUB_URL = process.env.HUB_BACKEND ?? 'http://localhost:3001';
 const DB_PATH = resolve(__dirname, '../../hub.db');
-const ABIN_ALERTS_PATH = resolve(__dirname, '../../public/abin-alerts.json');
 
 const WEEK_DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 const WEEK_DAY_IDX = Object.fromEntries(WEEK_DAY_NAMES.map((d, i) => [d, i]));
 
-function safeJson(raw) {
-  try { return JSON.parse(raw); } catch { return null; }
-}
-
-function getMondayIso(date) {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-  d.setDate(diff);
-  return d.toISOString().split('T')[0];
-}
-
-function getKey(db, key) {
-  const row = db.prepare('SELECT value FROM kv_store WHERE key = ?').get(key);
-  return row ? safeJson(row.value) : null;
-}
-
 function buildNotifications() {
   if (!existsSync(DB_PATH)) return [];
-  const db = new DatabaseSync(DB_PATH);
+  const db = openHubDb(DB_PATH);
+  const kv = ownerKv(db);
   const notifications = [];
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = localDayKey(today);
   const todayDayName = WEEK_DAY_NAMES[today.getDay()];
   const todayDayIdx = today.getDay();
 
   // Dados compartilhados entre os alertas de estudo
-  const plan = getKey(db, 'study.weeklyPlan');
-  const completions = getKey(db, 'study.sessionCompletions') ?? {};
+  // Only nag about the plan while it's being followed (shared/activity/recentActivity.js).
+  const completions = kv.get('study.sessionCompletions') ?? {};
+  const plan = isStudyPlanInUse(completions, today) ? kv.get('planner.weeklyPlan') : null;
 
-  // ── 1. Edital CBMSC ────────────────────────────────────────────────────────
-  const editalCache = getKey(db, 'concurso.editalAlertsCache');
-  if (editalCache?.alerts?.length > 0) {
-    const dismissed = getKey(db, 'concurso.dismissedEditalAlerts') ?? [];
-    const active = editalCache.alerts.filter((a) => !dismissed.includes(a.detectedAt + a.url));
-    if (active.length > 0) {
-      notifications.push({ title: '🚨 Alerta CBMSC', body: active[0].title, url: '/concurso' });
-    }
-  }
-
-  // ── 2. Edital ABIN ─────────────────────────────────────────────────────────
-  if (existsSync(ABIN_ALERTS_PATH)) {
-    try {
-      const abinData = JSON.parse(readFileSync(ABIN_ALERTS_PATH, 'utf-8'));
-      if (abinData?.alerts?.length > 0) {
-        const dismissedAbin = getKey(db, 'concurso.abin.dismissedAlerts') ?? [];
-        const active = abinData.alerts.filter(
-          (a) => !dismissedAbin.includes(a.detectedAt + a.url),
-        );
-        if (active.length > 0) {
-          notifications.push({ title: '🕵️ Alerta ABIN', body: active[0].title, url: '/abin' });
-        }
-      }
-    } catch { /* arquivo malformado — ignora */ }
-  }
-
-  // ── 3. Prova hoje ou amanhã ─────────────────────────────────────────────────
-  const assessments = getKey(db, 'college.assessments') ?? [];
-  const subjects = getKey(db, 'college.subjects') ?? [];
+  // ── 1. Prova hoje ou amanhã ─────────────────────────────────────────────────
+  const assessments = kv.get('college.assessments') ?? [];
+  const subjects = kv.get('college.subjects') ?? [];
   const urgentAssessments = assessments.filter((a) => {
     if (a.status !== 'scheduled' || !a.date) return false;
     const daysUntil = Math.round((new Date(a.date).getTime() - today.getTime()) / 86400000);
@@ -111,62 +76,48 @@ function buildNotifications() {
     });
   }
 
-  // ── 4. TAF: sem treino há mais de 5 dias ───────────────────────────────────
-  const workouts = getKey(db, 'fitness.workouts') ?? [];
+  // ── 2. Sem treino há 5 dias ou mais ───────────────────────────────────────
+  const workouts = kv.get('fitness.workouts') ?? [];
   if (workouts.length > 0) {
     const lastWorkout = new Date(workouts[0].date + 'T00:00:00');
     const daysSince = Math.floor((today.getTime() - lastWorkout.getTime()) / 86400000);
-    if (daysSince >= 5) {
+    if (daysSince >= 5 && isTrainingInUse(daysSince)) {
       notifications.push({
-        title: '💪 Treino em atraso',
-        body: `Você não treina há ${daysSince} dias. TAF do CBMSC não espera!`,
+        title: '💪 Treino',
+        body: `Último treino há ${daysSince} dias.`,
         url: '/treino',
       });
     }
   }
 
-  // ── 5. Check-in ABIN todo domingo ──────────────────────────────────────────
-  if (todayDayIdx === 0) {
-    const abinCheckIns = getKey(db, 'concurso.abin.checkIns') ?? [];
-    const monday = getMondayIso(today);
-    const thisWeekDone = abinCheckIns.some((ci) => ci.weekStart === monday);
-    if (!thisWeekDone) {
-      notifications.push({
-        title: '🕵️ Check-in ABIN',
-        body: 'Registre as horas de estudo e treino desta semana.',
-        url: '/abin',
-      });
-    }
-  }
-
-  // ── 6. Sessão de hoje não registrada (útil quando rodado às 20h) ───────────
+  // ── 3. Sessão de hoje não registrada (útil quando rodado às 20h) ───────────
   if (today.getHours() >= 20 && plan?.sessions?.length > 0) {
     const todaySessions = plan.sessions.map((s, i) => ({ s, i })).filter(({ s }) => s.day === todayDayName);
     const unmarked = todaySessions.filter(({ i }) => !completions[`${plan.weekOf}:${i}`]);
     if (unmarked.length > 0) {
       notifications.push({
-        title: '📖 Sessão não registrada',
-        body: `${unmarked.length} sessão(ões) de hoje sem status. Você estudou?`,
+        title: '📖 Sessões de hoje',
+        body: `${unmarked.length} sessão(ões) do plano ainda sem marcação.`,
         url: '/estudos',
       });
     }
   }
 
-  // ── 7. Sequência em risco (quarta ou depois, zero conclusões na semana) ────
+  // ── 4. Sequência em risco (quarta ou depois, zero conclusões na semana) ────
   if (todayDayIdx >= 3 && plan?.sessions?.length > 0) {
     const doneThisWeek = Object.entries(completions).filter(
       ([k, v]) => k.startsWith(`${plan.weekOf}:`) && (v === 'done' || v === 'partial'),
     );
     if (doneThisWeek.length === 0) {
       notifications.push({
-        title: '⚠️ Sequência em risco',
-        body: 'Nenhuma sessão registrada essa semana. Não deixa a sequência quebrar!',
+        title: '📖 Plano da semana',
+        body: 'Nenhuma sessão marcada nesta semana ainda.',
         url: '/estudos',
       });
     }
   }
 
-  // ── 8. Semana abaixo de 50% (quinta ou sexta) ──────────────────────────────
+  // ── 5. Semana abaixo de 50% (quinta ou sexta) ──────────────────────────────
   if ((todayDayIdx === 4 || todayDayIdx === 5) && plan?.sessions?.length > 0) {
     const pastSessions = plan.sessions.map((s, i) => ({ s, i })).filter(({ s }) => (WEEK_DAY_IDX[s.day] ?? 0) < todayDayIdx);
     if (pastSessions.length > 0) {
@@ -177,15 +128,15 @@ function buildNotifications() {
       const rate = Math.round((done / pastSessions.length) * 100);
       if (rate < 50) {
         notifications.push({
-          title: '📉 Semana abaixo de 50%',
-          body: `Taxa de conclusão: ${rate}%. Ainda dá pra recuperar hoje!`,
+          title: '📖 Plano da semana',
+          body: `${rate}% das sessões até aqui foram feitas.`,
           url: '/estudos',
         });
       }
     }
   }
 
-  // ── 9. Prova em 3 dias sem revisão concluída ───────────────────────────────
+  // ── 6. Prova em 3 dias sem revisão concluída ───────────────────────────────
   const nearAssessments = assessments.filter((a) => {
     if (a.status !== 'scheduled' || !a.date) return false;
     const daysUntil = Math.round((new Date(a.date).getTime() - today.getTime()) / 86400000);
@@ -208,27 +159,23 @@ function buildNotifications() {
     }
   }
 
-  // ── 10. Budget excedendo 90% ───────────────────────────────────────────────
-  const budgets = getKey(db, 'finance.budgets') ?? [];
-  const transactions = getKey(db, 'finance.transactions') ?? [];
+  // ── 7. Budget excedendo 90% ───────────────────────────────────────────────
+  const budgets = kv.get('finance.budgets') ?? [];
+  const transactions = kv.get('finance.transactions') ?? [];
   if (budgets.length > 0 && transactions.length > 0) {
-    const monthStr = todayStr.slice(0, 7);
-    const monthExpenses = transactions.filter((t) => t.date?.startsWith(monthStr) && t.amount < 0);
-    for (const budget of budgets.filter((b) => b.isActive && b.limit > 0)) {
-      const budgetCatId = (budget.categoryId ?? '').toLowerCase();
-      const budgetCatName = (budget.category ?? budget.name ?? '').toLowerCase();
-      const spent = monthExpenses
-        .filter((t) => {
-          const tCatId = (t.categoryId ?? '').toLowerCase();
-          const tCat = (t.category ?? '').toLowerCase();
-          return (budgetCatId && tCatId === budgetCatId) || tCat === budgetCatName;
-        })
-        .reduce((sum, t) => sum + Math.abs(t.amount), 0);
-      const pct = (spent / budget.limit) * 100;
+    const startDay = clampStartDay(kv.get(MONTH_START_DAY_KEY));
+    const monthStr = currentFinancialMonth(startDay, today);
+    const monthTxs = transactions.filter((t) => isInFinancialMonth(t.date, monthStr, startDay));
+    for (const budget of budgets.filter((b) => b.isActive && budgetLimitOf(b) > 0)) {
+      // Same number the Orçamentos screen shows (financeTotals.js): net of
+      // refunds, without bill payments, transfers or matched reimbursements.
+      const limit = budgetLimitOf(budget);
+      const spent = budgetSpent(budget, monthTxs);
+      const pct = (spent / limit) * 100;
       if (pct >= 90) {
         notifications.push({
           title: '💰 Budget quase esgotado',
-          body: `${budget.name}: ${Math.round(pct)}% usado (R$${spent.toFixed(0)} / R$${budget.limit.toFixed(0)})`,
+          body: `${budget.name}: ${Math.round(pct)}% usado (R${spent.toFixed(0)} / R${limit.toFixed(0)})`,
           url: '/financeiro',
         });
         break; // um alerta de budget por vez
@@ -236,12 +183,14 @@ function buildNotifications() {
     }
   }
 
-  // ── 11. Fatura vencendo em ≤2 dias ────────────────────────────────────────
-  const cards = getKey(db, 'finance.cards') ?? [];
+  // ── 8. Fatura vencendo em ≤2 dias ────────────────────────────────────────
+  const cards = kv.get('finance.cards') ?? [];
   for (const card of cards.filter((c) => c.isActive && c.dueDay)) {
-    const dueDate = new Date(today.getFullYear(), today.getMonth(), card.dueDay);
-    if (dueDate < today) dueDate.setMonth(dueDate.getMonth() + 1);
-    const daysUntilDue = Math.round((dueDate.getTime() - today.getTime()) / 86400000);
+    const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const dueIn = (year, month) => new Date(year, month, Math.min(card.dueDay, new Date(year, month + 1, 0).getDate()));
+    let dueDate = dueIn(midnight.getFullYear(), midnight.getMonth());
+    if (dueDate < midnight) dueDate = dueIn(midnight.getFullYear(), midnight.getMonth() + 1);
+    const daysUntilDue = Math.round((dueDate.getTime() - midnight.getTime()) / 86400000);
     if (daysUntilDue >= 0 && daysUntilDue <= 2) {
       notifications.push({
         title: '💳 Fatura vencendo',
@@ -251,11 +200,16 @@ function buildNotifications() {
     }
   }
 
-  // ── 12. Meta perto do prazo (≤5 dias, progresso < 70%) ────────────────────
-  const goals = getKey(db, 'goals.list') ?? [];
+  // ── 9. Meta perto do prazo (≤5 dias, progresso < 70%) ────────────────────
+  const goals = kv.get('goals.list') ?? [];
+  // Local calendar days: `new Date('YYYY-MM-DD')` is UTC midnight, 21h the day before here.
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  const daysUntilGoal = (g) =>
+    Math.round((new Date(g.targetDate.slice(0, 10) + 'T00:00:00').getTime() - midnight.getTime()) / 86400000);
   const urgentGoals = goals.filter((g) => {
     if (g.status !== 'active' || !g.targetDate) return false;
-    const daysUntil = Math.round((new Date(g.targetDate).getTime() - today.getTime()) / 86400000);
+    const daysUntil = daysUntilGoal(g);
     if (daysUntil < 0 || daysUntil > 5) return false;
     const total = g.keyResults?.length ?? 0;
     const done = (g.keyResults ?? []).filter((kr) => kr.status === 'done').length;
@@ -264,16 +218,16 @@ function buildNotifications() {
   });
   if (urgentGoals.length > 0) {
     const g = urgentGoals[0];
-    const daysUntil = Math.round((new Date(g.targetDate).getTime() - today.getTime()) / 86400000);
+    const daysUntil = daysUntilGoal(g);
     notifications.push({
       title: '🎯 Meta perto do prazo',
-      body: `"${g.title}" vence em ${daysUntil} dia(s) com progresso abaixo de 70%.`,
+      body: `"${g.title}" vence ${daysUntil === 0 ? 'hoje' : `em ${daysUntil} ${daysUntil === 1 ? 'dia' : 'dias'}`} com progresso abaixo de 70%.`,
       url: '/metas',
     });
   }
 
-  // ── 13. Energia baixa no check-in de hoje ──────────────────────────────────
-  const jarvisCheckIns = getKey(db, 'jarvis.checkIns') ?? {};
+  // ── 10. Energia baixa no check-in de hoje ──────────────────────────────────
+  const jarvisCheckIns = kv.get('jarvis.checkIns') ?? {};
   const todayCheckIn = jarvisCheckIns[todayStr];
   if (todayCheckIn && todayCheckIn.mood > 0 && todayCheckIn.energy <= 2) {
     notifications.push({
@@ -293,13 +247,29 @@ async function main() {
   const notifications = buildNotifications();
 
   if (notifications.length === 0) {
-    log.info('Nenhum alerta crítico hoje — push não enviado.');
+    log.success('Nenhum alerta crítico hoje — push não enviado.');
     return;
   }
 
-  log.info(`${notifications.length} notificação(ões) para enviar.`);
+  log.info(`${notifications.length} alerta(s) — vão num push só.`);
+  try {
+    await waitForHub({ log });
+  } catch (err) {
+    log.error('Push não enviado', err);
+    process.exitCode = 1;
+    return;
+  }
 
-  for (const notif of notifications) {
+  // One push per run, not one per alert: this runs twice a day and each alert
+  // used to be its own push, which on a bad day meant a burst of five at 7h
+  // on top of the Íris's own. The Home's "Atenção" card has the details.
+  const outgoing = notifications.length === 1 ? notifications : [{
+    title: `${notifications.length} lembretes para hoje`,
+    body: notifications.map((n) => n.title).join(' · ').slice(0, 180),
+    url: '/',
+  }];
+
+  for (const notif of outgoing) {
     try {
       const res = await fetch(`${HUB_URL}/api/push/send`, {
         method: 'POST',

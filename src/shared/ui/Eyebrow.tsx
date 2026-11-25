@@ -16,7 +16,7 @@ export function Eyebrow({ children, className = '', style }: EyebrowProps) {
       className={className}
       style={{
         margin: 0,
-        fontSize: '10.5px',
+        fontSize: '11px',
         fontWeight: 600,
         textTransform: 'uppercase',
         letterSpacing: '0.12em',

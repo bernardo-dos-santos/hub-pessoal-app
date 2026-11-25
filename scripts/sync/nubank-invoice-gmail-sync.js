@@ -1,6 +1,6 @@
 /**
  * nubank-invoice-gmail-sync.js
- * Busca a fatura PDF do Nubank no Gmail, parseia e grava em public/nubank-invoice-pending.json.
+ * Busca a fatura PDF do Nubank no Gmail, parseia e grava em data/pending/nubank-invoice-pending.json.
  * Roda automaticamente via Task Scheduler no dia 5 de cada mês às 23:59.
  *
  * Pré-requisito: ter rodado authorize-google.js ao menos uma vez
@@ -17,12 +17,17 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { recordUnparsedEmail } from '../lib/dead-letter.js';
 import { notifySyncFailure } from '../lib/notify.js';
+import { createLogger } from '../lib/logger.js';
 import { searchMessages, getMessage, getAttachment, listAttachments } from '../../server/google.js';
+import { pendingPath, writePending } from '../../server/pendingFiles.js';
+// The owner's Gmail and card — per-user invoice import comes later in F3.
+import { OWNER_ID } from '../../server/userContext.js';
 
+const log = createLogger('nubank-invoice-gmail-sync');
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR    = resolve(__dirname, '../config');
 const STATE_PATH    = resolve(CONFIG_DIR, 'nubank-invoice-state.json');
-const OUTPUT_PATH   = resolve(__dirname, '../../public/nubank-invoice-pending.json');
+const OUTPUT_PATH   = pendingPath('nubank-invoice', OWNER_ID);
 
 const GMAIL_QUERY = 'from:todomundo@nubank.com.br subject:"fatura do seu cartão" has:attachment filename:pdf';
 
@@ -175,7 +180,7 @@ async function main() {
 
   const invoice = await fetchLatestInvoicePdf();
   if (!invoice) {
-    console.log('[invoice-sync] Nenhuma fatura nova para processar.');
+    log.info('Nenhuma fatura nova para processar.');
     return;
   }
 
@@ -194,7 +199,7 @@ async function main() {
       subject: invoice.filename,
       snippet: result.text,
     });
-    console.warn('[invoice-sync] Fatura parseada com 0 transações — registrada em logs/unparsed-emails.json');
+    log.warn(`Fatura ${invoice.filename} parseada com 0 transações — registrada em logs/unparsed-emails.json`);
     await notifySyncFailure('invoice-sync', new Error(`Fatura ${invoice.filename} parseada com 0 transações.`));
   }
 
@@ -205,19 +210,18 @@ async function main() {
     transactions,
   };
 
-  writeFileSync(OUTPUT_PATH, JSON.stringify(output, null, 2));
+  writePending('nubank-invoice', JSON.stringify(output, null, 2), OWNER_ID);
 
   // Marca como processado
   const state = loadState();
   state.processedMessageIds = [invoice.messageId, ...state.processedMessageIds].slice(0, 12);
   saveState(state);
 
-  console.log(`[invoice-sync] ${transactions.length} transações extraídas → public/nubank-invoice-pending.json`);
-  console.log('[invoice-sync] Concluído.');
+  log.success(`${transactions.length} transações extraídas → ${OUTPUT_PATH}`);
 }
 
 main().catch(async (err) => {
-  console.error('[invoice-sync] Erro:', err.message);
+  log.error('Falhou', err);
   await notifySyncFailure('invoice-sync', err);
   process.exit(1);
 });

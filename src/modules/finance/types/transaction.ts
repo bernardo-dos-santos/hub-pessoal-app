@@ -37,6 +37,14 @@ export type Transaction = {
   reimbursementMatchedAt?: string;
   installmentCount?: number;
   installmentValue?: number;
+  /**
+   * How the bank sent it, kept the first time the person edits date, amount or
+   * description of an imported line — the next import of the same statement is
+   * matched against this, or the edited line would come back as a new one.
+   */
+  importedAs?: { date: string; amount: number; description: string };
+  /** A part created by splitting this transaction (the original keeps the first part). */
+  splitFromId?: string;
   createdAt: string;
   updatedAt: string;
 };

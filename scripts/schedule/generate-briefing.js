@@ -18,19 +18,16 @@
  */
 
 import { createLogger } from '../lib/logger.js';
+import { HUB_URL, waitForHub } from '../lib/hubApi.js';
 
 const log = createLogger('generate-briefing');
 
-// 127.0.0.1, não "localhost": o servidor só escuta em 0.0.0.0 (IPv4). Se o
-// fetch nativo do Node resolver "localhost" pra IPv6 (::1) primeiro, a
-// conexão falha sem fallback pra IPv4 — foi isso que deixou o briefing sem
-// rodar desde 24/06 (Task Scheduler registrava só um crash 0xC0000409).
-const HUB_URL = process.env.HUB_BACKEND ?? 'http://127.0.0.1:3001';
 
 async function main() {
   log.info('Gerando morning briefing...');
 
   try {
+    await waitForHub({ log });
     const res = await fetch(`${HUB_URL}/api/briefing/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

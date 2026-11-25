@@ -15,7 +15,7 @@ export function FinanceChartCard({ action, children, description, title }: Finan
         <div>
           <p
             className="font-medium uppercase"
-            style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}
+            style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '4px' }}
           >
             {title}
           </p>

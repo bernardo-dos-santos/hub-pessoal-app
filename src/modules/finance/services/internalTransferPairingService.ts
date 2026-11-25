@@ -8,7 +8,7 @@ import { type Transaction } from '../types/transaction';
  *
  * A heurística por texto (`suggestTransactionKind`) exige "transferencia enviada
  * pelo pix" + o nome do titular, formato que só o sync por e-mail produz. O
- * extrato do Open Finance vem seco ("TRANSF ENVIADA PIX"), então toda
+ * extrato vem seco ("TRANSF ENVIADA PIX"), então toda
  * transferência própria virava despesa real de um lado e entrada a revisar do
  * outro — inflando o gasto do mês por dinheiro que nunca saiu do bolso.
  *
@@ -55,7 +55,20 @@ function asInternalTransfer(draft: NormalizedTransactionDraft, counterpartAccoun
 export type InternalTransferPairingResult = {
   drafts: NormalizedTransactionDraft[];
   pairedCount: number;
+  /** Saved transactions that are the other end of a pair — they become transfers too. */
+  existingCounterparts: { id: string; counterpartAccount: string }[];
 };
+
+/** The patch that turns a saved transaction into its side of an internal transfer. */
+export function internalTransferPatch(counterpartAccount: string) {
+  return {
+    kind: 'transfer' as const,
+    category: specialCategories.internalTransfer,
+    needsReview: false,
+    classificationConfidence: 'high' as const,
+    classificationReason: `Par encontrado em ${counterpartAccount}: mesmo valor, sinal oposto e data próxima entre contas próprias.`,
+  };
+}
 
 /**
  * Marca como transferência interna os drafts que têm contrapartida — seja em
@@ -67,6 +80,9 @@ export function pairInternalTransfers(
 ): InternalTransferPairingResult {
   const result = [...drafts];
   const alreadyPaired = new Set<number>();
+  // A saved transaction pairs with one draft only.
+  const usedExisting = new Set<string>();
+  const existingCounterparts: InternalTransferPairingResult['existingCounterparts'] = [];
   let pairedCount = 0;
 
   for (let index = 0; index < result.length; index += 1) {
@@ -100,6 +116,7 @@ export function pairInternalTransfers(
     // 2) contrapartida já salva no Hub (a outra ponta veio num import anterior)
     const existingCounterpart = existingTransactions.find(
       (candidate) =>
+        !usedExisting.has(candidate.id) &&
         isPairable(candidate) &&
         candidate.accountId !== draft.accountId &&
         cents(candidate.amount) === -cents(draft.amount) &&
@@ -107,15 +124,16 @@ export function pairInternalTransfers(
     );
 
     if (existingCounterpart) {
+      // Both ends become neutral: marking only the new one left the saved side
+      // counting as spending.
       result[index] = asInternalTransfer(draft, existingCounterpart.accountName ?? 'outra conta');
       alreadyPaired.add(index);
-      pairedCount += 1;
+      usedExisting.add(existingCounterpart.id);
+      existingCounterparts.push({ id: existingCounterpart.id, counterpartAccount: draft.accountName ?? 'outra conta' });
+      pairedCount += 2;
     }
   }
 
-  return { drafts: result, pairedCount };
+  return { drafts: result, pairedCount, existingCounterparts };
 }
 
-export const internalTransferPairingService = {
-  pairInternalTransfers,
-};

@@ -1,5 +1,6 @@
 import { storageAdapter } from '../../../../core/storage/storage.adapter';
 import { financeSummaryService } from '../../services/financeSummaryService';
+import { getCurrentMonthKey, getPreviousMonthKey } from '../../utils/financePeriod';
 import { type Investment } from '../types/investment';
 
 const KEY_RESERVE_TARGET_MONTHS = 'finance.investments.reserveTargetMonths';
@@ -60,7 +61,9 @@ export function setReserveDeadline(date: string | null): void {
  * parecer maior do que é.
  */
 export function calculateMonthlyExpenseAverage(): { average: number; monthsSampled: number } {
-  const evolution = financeSummaryService.getMonthlyEvolution(undefined, LOOKBACK_MONTHS);
+  // Closed months only: the month in progress has a fraction of its spending
+  // and pulled the average (and so the reserve target) down.
+  const evolution = financeSummaryService.getMonthlyEvolution(getPreviousMonthKey(getCurrentMonthKey()), LOOKBACK_MONTHS);
   const monthsWithData = evolution.filter((point) => point.transactionCount > 0 && point.expenses > 0);
 
   if (monthsWithData.length === 0) {

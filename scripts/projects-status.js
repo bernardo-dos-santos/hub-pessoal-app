@@ -22,21 +22,16 @@ const PROJECTS_KEYS = ['projects.list', 'projects.fronts', 'projects.tasks', 'pr
 
 async function loadProjectsStore() {
   if (existsSync(DB_PATH)) {
-    const { DatabaseSync } = await import('node:sqlite');
-    const db = new DatabaseSync(DB_PATH);
-    const rows = db.prepare("SELECT key, value FROM kv_store WHERE key LIKE 'projects.%'").all();
+    const { openHubDb, ownerKv } = await import('./lib/hubDb.js');
+    const db = openHubDb(DB_PATH);
+    const store = ownerKv(db).getByPrefix('projects.');
     db.close();
-    const store = {};
-    for (const row of rows) store[row.key] = JSON.parse(row.value);
     // Linhas vazias (ex.: dev local sem uso real) não contam como dado de
     // produção — só usa o local se `projects.list` tiver projeto de verdade,
     // senão cai pro Tailscale como se o arquivo não existisse.
     if ((store['projects.list'] ?? []).length > 0) {
       return { store, source: `local (${DB_PATH})` };
     }
-  }
-  if (!TAILSCALE_BACKEND) {
-    throw new Error('Sem hub.db local com dados e sem HUB_BACKEND definido (endereço do servidor no tailnet, veja .env.example).');
   }
   // Busca só as chaves projects.* uma a uma — nunca o snapshot completo do
   // store (que traria finance, study, etc. junto sem necessidade).
@@ -76,9 +71,15 @@ function formatDate(iso) {
   return iso ? iso.slice(0, 10) : '?';
 }
 
+/** `[-]` para cancelada: sem isso ela aparecia como pendente e parecia trabalho a fazer. */
 function taskMark(status) {
-  return status === 'done' ? '[x]' : '[ ]';
+  if (status === 'done') return '[x]';
+  if (status === 'canceled') return '[-]';
+  return '[ ]';
 }
+
+/** Mesma ordem que a tela do módulo usa (`order`), não a ordem de criação. */
+const byOrder = (a, b) => (a.order ?? 0) - (b.order ?? 0);
 
 async function main() {
   const { store, source } = await loadProjectsStore();
@@ -119,7 +120,7 @@ async function main() {
     }
 
     for (const front of projectFronts) {
-      const frontTasks = projectTasks.filter((t) => t.frontId === front.id);
+      const frontTasks = projectTasks.filter((t) => t.frontId === front.id).sort(byOrder);
       const phase = front.phase ? ` [${front.phase === 'figuring' ? 'descobrindo' : 'executando'}]` : '';
       console.log(`\n  Frente: ${front.name} (${front.status})${phase} — última atividade ${formatDate(front.lastActivityAt)}`);
       const nextAction = projectTasks.find((t) => t.id === front.nextActionTaskId);
@@ -128,7 +129,7 @@ async function main() {
       for (const task of frontTasks) console.log(`    ${taskMark(task.status)} ${task.title}`);
     }
 
-    const looseTasks = projectTasks.filter((t) => !t.frontId);
+    const looseTasks = projectTasks.filter((t) => !t.frontId).sort(byOrder);
     if (looseTasks.length > 0) {
       console.log('\n  Tarefas sem frente:');
       for (const task of looseTasks) console.log(`    ${taskMark(task.status)} ${task.title}`);

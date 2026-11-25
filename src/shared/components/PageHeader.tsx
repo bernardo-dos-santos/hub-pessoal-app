@@ -10,7 +10,7 @@ export function PageHeader({ eyebrow, title, description }: PageHeaderProps) {
       {eyebrow ? (
         <span
           className="font-semibold uppercase"
-          style={{ fontSize: '10.5px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}
+          style={{ fontSize: '11px', letterSpacing: '0.12em', color: 'var(--hub-label)' }}
         >
           {eyebrow}
         </span>

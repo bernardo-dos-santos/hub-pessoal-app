@@ -8,7 +8,7 @@ import { rpgModuleConfig } from '../../modules/rpg/module.config';
 import { studyModuleConfig } from '../../modules/study/module.config';
 import { type ModuleStatus } from './module-status';
 import { type ModuleDefinition } from './module-types';
-import { filterHomeModules, filterModulesByStatus, sortModulesByOrder } from './module-utils';
+import { filterModulesByStatus, sortModulesByOrder } from './module-utils';
 
 export const modules: ModuleDefinition[] = sortModulesByOrder([
   financeModuleConfig,
@@ -23,8 +23,4 @@ export const modules: ModuleDefinition[] = sortModulesByOrder([
 
 export function getModulesByStatus(status: ModuleStatus) {
   return sortModulesByOrder(filterModulesByStatus(modules, status));
-}
-
-export function getHomeModules() {
-  return filterHomeModules(modules);
 }

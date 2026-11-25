@@ -1,4 +1,4 @@
 export const appConfig = {
-  name: 'Hub Pessoal',
+  name: 'Olimpo',
   version: '0.1.0',
 } as const;

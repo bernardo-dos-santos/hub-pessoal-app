@@ -44,13 +44,11 @@ export function NewSummaryPage() {
     setStatus('Preparando material…');
 
     try {
-      const cacheId = source.kind === 'college'
-        ? summaryCacheService.makeId(source.subjectTag, format, source.materialIds)
-        : null;
+      const cacheId = summaryCacheService.makeId(source.subjectTag, format, source.materialIds);
 
       // Só reaproveita o cache quando a entrada é exatamente a mesma: texto
       // complementar digitado muda o conteúdo sem mudar a chave do cache.
-      if (cacheId && !force && source.kind === 'college' && source.extraText.trim() === '') {
+      if (!force && source.extraText.trim() === '') {
         const cached = summaryCacheService.read(cacheId);
         if (cached) {
           setSummary(cached.text);
@@ -69,7 +67,7 @@ export function NewSummaryPage() {
       setStatus('Gerando resumo…');
       const text = await aiSummaryService.summarize({ sourceText, format, subjectTag: source.subjectTag });
       setSummary(text);
-      if (cacheId) summaryCacheService.write(cacheId, text);
+      summaryCacheService.write(cacheId, text);
 
       // Auto-save, mesmo tratamento de questões e flashcards: sair da tela nunca
       // pode jogar fora o texto e o custo de IA já gasto.
@@ -106,7 +104,7 @@ export function NewSummaryPage() {
           <div>
             <label
               className="mb-2 block"
-              style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}
+              style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}
             >
               Formato
             </label>
@@ -133,7 +131,7 @@ export function NewSummaryPage() {
               <div className="flex items-center justify-between">
                 <p
                   className="font-medium uppercase"
-                  style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}
+                  style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}
                 >
                   Resumo salvo
                 </p>

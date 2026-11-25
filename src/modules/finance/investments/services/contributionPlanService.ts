@@ -17,14 +17,17 @@ export type ContributionSplit = {
   reserveComplete: boolean;
   /** Sem prazo definido, ou sem gasto suficiente pra medir a reserva em meses. */
   deadlineActive: boolean;
+  /** The deadline's month is already behind us — the screen asks for a new one. */
+  deadlinePassed: boolean;
 };
 
-/** Meses de calendário entre hoje e a data-alvo, no mínimo 1. */
-function monthsUntil(deadline: string): number {
-  const now = new Date();
-  const target = new Date(deadline);
-  const months = (target.getFullYear() - now.getFullYear()) * 12 + (target.getMonth() - now.getMonth());
-  return Math.max(1, months);
+/**
+ * Calendar months from now to the deadline. Read from the string: `new Date("2026-12-01")`
+ * is UTC midnight, already November 30 in Brazil — a month short.
+ */
+function monthsUntil(deadline: string, now = new Date()): number {
+  const [year, month] = deadline.split('-').map(Number);
+  return (year - now.getFullYear()) * 12 + (month - 1 - now.getMonth());
 }
 
 /**
@@ -53,13 +56,17 @@ export function calculateContributionSplit(
     shortfallPerMonth: null,
     reserveComplete: reserve.gap !== null && reserve.gap <= 0,
     deadlineActive: false,
+    deadlinePassed: false,
   };
 
   if (!Number.isFinite(monthlyContribution) || monthlyContribution <= 0) return base;
   if (!deadline || reserve.gap === null) return base;
   if (reserve.gap <= 0) return { ...base, reserveComplete: true };
 
-  const monthsToDeadline = monthsUntil(deadline);
+  const monthsLeft = monthsUntil(deadline);
+  if (monthsLeft < 0) return { ...base, deadlinePassed: true };
+  // Deadline this month = this month's contribution is the last one.
+  const monthsToDeadline = Math.max(1, monthsLeft);
   const neededPerMonthForReserve = reserve.gap / monthsToDeadline;
   const feasible = neededPerMonthForReserve <= monthlyContribution;
   const reserveAmount = Math.min(neededPerMonthForReserve, monthlyContribution);
@@ -74,6 +81,7 @@ export function calculateContributionSplit(
     shortfallPerMonth: feasible ? null : neededPerMonthForReserve - monthlyContribution,
     reserveComplete: false,
     deadlineActive: true,
+    deadlinePassed: false,
   };
 }
 

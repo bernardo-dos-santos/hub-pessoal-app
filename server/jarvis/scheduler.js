@@ -13,6 +13,7 @@
 
 import { runInitiativeTick } from './initiative.js';
 import { getJarvisConfig } from './config.js';
+import { runAsUser, OWNER_ID } from '../userContext.js';
 
 /** Timer do próximo tick, ou null enquanto um tick está rodando. */
 let timer = null;
@@ -24,7 +25,9 @@ function scheduleNext() {
   if (timer) clearTimeout(timer);
   timer = setTimeout(() => {
     timer = null;
-    runInitiativeTick()
+    // Explícito em vez de herdado do contexto de quem agendou: o Jarvis
+    // proativo é do dono até a F5 (Jarvis por usuário).
+    runAsUser(OWNER_ID, () => runInitiativeTick())
       .catch((err) => console.error('[jarvis] tick proativo falhou:', err))
       .finally(scheduleNext);
   }, delayMs);

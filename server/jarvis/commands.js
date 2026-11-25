@@ -82,10 +82,18 @@ export function pendingCount() {
   return listCommands().filter((c) => c.status === 'pending').length;
 }
 
-function isAutoApproved(command, level) {
+/**
+ * O que o cmd.exe usa para encadear, redirecionar ou expandir. O prefixo só
+ * descreve o comando inteiro quando nada disto aparece: `echo oi & del x`
+ * começa com "echo " e rodaria o `del` junto, sem ninguém aprovar.
+ */
+const SHELL_METACHARS = /[&|;<>^%`\r\n]/;
+
+export function isAutoApproved(command, level) {
   if (level >= 4) return true;
   if (level < 3) return false;
   const normalized = command.trim().toLowerCase();
+  if (SHELL_METACHARS.test(normalized)) return false;
   return AUTO_APPROVED_PREFIXES.some((p) => normalized.startsWith(p));
 }
 
@@ -126,7 +134,7 @@ export function requestApproval({ kind, display, why, payload }) {
   save([entry, ...list]);
 
   void sendPushNotifications([{
-    title: PUSH_TITLE[kind] ?? '🔐 JARVIS pede aprovação',
+    title: PUSH_TITLE[kind] ?? '🔐 Íris pede aprovação',
     body: text.length > 120 ? `${text.slice(0, 120)}…` : text,
     url: '/',
   }]).catch(() => null);
@@ -135,14 +143,14 @@ export function requestApproval({ kind, display, why, payload }) {
     ok: true,
     pending: true,
     commandId: entry.id,
-    message: 'Pedido registrado. Aguardando a aprovação do Senhor no painel — expira em 10 minutos.',
+    message: 'Pedido registrado. Aguardando a aprovação do Bernardo no painel — expira em 10 minutos.',
   };
 }
 
 const PUSH_TITLE = {
-  shell: '🔐 JARVIS quer rodar um comando',
-  google: '🔐 JARVIS quer escrever numa conta sua',
-  sync: '🔐 JARVIS quer disparar um sync',
+  shell: '🔐 Íris quer rodar um comando',
+  google: '🔐 Íris quer escrever numa conta sua',
+  sync: '🔐 Íris quer disparar um sync',
 };
 
 /**

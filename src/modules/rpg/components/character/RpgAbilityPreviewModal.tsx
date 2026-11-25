@@ -7,7 +7,7 @@ type RpgAbilityPreviewModalProps = {
 };
 
 const sectionLabelStyle = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase',
   letterSpacing: '0.13em',
@@ -16,7 +16,7 @@ const sectionLabelStyle = {
 
 export function RpgAbilityPreviewModal({ onApply, onClose, preview }: RpgAbilityPreviewModalProps) {
   return (
-    <div className="fixed inset-0 z-50 grid place-items-end p-3 sm:place-items-center" style={{ background: 'rgba(58,44,34,0.35)' }}>
+    <div className="fixed inset-0 z-50 grid place-items-end p-3 sm:place-items-center" style={{ background: 'var(--hub-overlay)' }}>
       <section
         className="grid max-h-[90vh] w-full max-w-lg gap-5 overflow-auto p-5"
         style={{

@@ -149,6 +149,13 @@ export const budgetService = {
     return true;
   },
 
+  /** Puts a deleted budget back where it was ("Desfazer"). */
+  restoreBudget(budget: Budget, index: number): void {
+    const budgets = readBudgets().filter((item) => item.id !== budget.id);
+    budgets.splice(Math.min(Math.max(index, 0), budgets.length), 0, budget);
+    writeBudgets(budgets);
+  },
+
   toggleBudget(id: string): Budget | null {
     const budget = this.getBudgetById(id);
     return budget ? this.updateBudget(id, { isActive: !budget.isActive }) : null;

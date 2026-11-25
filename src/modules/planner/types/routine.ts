@@ -56,6 +56,10 @@ export type Routine = {
 
 export type SessionType = 'study' | 'review' | 'train' | 'rest' | 'admin' | 'other';
 
+export const SESSION_TYPE_LABEL: Record<SessionType, string> = {
+  study: 'Estudo', review: 'Revisão', train: 'Treino', rest: 'Descanso', admin: 'Admin', other: 'Outro',
+};
+
 export type WeeklySession = {
   id: string;
   day: WeekDay;

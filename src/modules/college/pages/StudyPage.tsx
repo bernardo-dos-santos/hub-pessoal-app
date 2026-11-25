@@ -28,7 +28,7 @@ export function StudyPage() {
           <Card className="mb-5">
             <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                   Disciplina selecionada
                 </span>
                 <h3 className="mt-1 text-lg font-semibold" style={{ color: 'var(--hub-text)' }}>
@@ -40,7 +40,7 @@ export function StudyPage() {
                 </p>
               </div>
               <label className="grid gap-2 md:w-56">
-                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                   Escolher disciplina
                 </span>
                 <Select
@@ -111,7 +111,7 @@ export function StudyPage() {
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <h4 className="text-sm font-semibold" style={{ color: 'var(--hub-text)' }}>{material.title}</h4>
-                          <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                          <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                             {formatMaterialType(material.type)}
                           </p>
                         </div>
@@ -229,7 +229,7 @@ function SectionHeading({ description, title }: { description: string; title: st
 function StudyStat({ label, value, last = false }: { label: string; value: number | string; last?: boolean }) {
   return (
     <div className="py-3" style={{ borderBottom: last ? 'none' : '1px solid var(--hub-border)' }}>
-      <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       <strong className="mt-2 block text-2xl" style={{ color: 'var(--hub-text)' }}>{value}</strong>

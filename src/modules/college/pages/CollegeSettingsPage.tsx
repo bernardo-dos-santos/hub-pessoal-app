@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, ListRow, Select, useConfirm, DateInput } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { collegeStorageKeys } from '../data/defaultCollegeData';
 import { alertService } from '../services/alertService';
@@ -12,6 +12,7 @@ import { subjectService } from '../services/subjectService';
 import { taskService } from '../services/taskService';
 
 export function CollegeSettingsPage() {
+  const confirmAction = useConfirm();
   const [cleared, setCleared] = useState(false);
   const [counts, setCounts] = useState(() => ({
     assessments: assessmentService.listAssessments().length,
@@ -48,8 +49,8 @@ export function CollegeSettingsPage() {
     .listActiveSubjects()
     .filter((s) => s.semester === selectedSemester);
 
-  function clearAllData() {
-    if (!confirm('Limpar TODOS os dados da Faculdade? Isso remove disciplinas, tarefas, avaliacoes, notas e materiais. Nao ha desfazer.')) return;
+  async function clearAllData() {
+    if (!(await confirmAction('Limpar TODOS os dados da Faculdade? Isso remove disciplinas, tarefas, avaliacoes, notas e materiais. Nao ha desfazer.', { confirmLabel: 'Limpar tudo' }))) return;
     subjectService.clearSubjects();
     assessmentService.clearAssessments();
     taskService.clearTasks();
@@ -62,21 +63,31 @@ export function CollegeSettingsPage() {
     setCleared(true);
   }
 
-  function closeSemester() {
+  async function closeSemester() {
     if (!selectedSemester || activeInSelectedSemester.length === 0) return;
     const names = activeInSelectedSemester.map((s) => s.name).join(', ');
-    if (!confirm(`Fechar o semestre ${selectedSemester}? Isso arquiva ${activeInSelectedSemester.length} disciplina(s): ${names}. Tarefas, notas e materiais continuam salvos.`)) return;
+    if (!(await confirmAction(`Fechar o semestre ${selectedSemester}? Isso arquiva ${activeInSelectedSemester.length} disciplina(s): ${names}. Tarefas, notas e materiais continuam salvos.`, { tone: 'neutral', confirmLabel: 'Fechar semestre' }))) return;
     const closed = subjectService.closeSemester(selectedSemester);
     setClosedMessage(`${closed.length} disciplina(s) do semestre ${selectedSemester} arquivada(s).`);
   }
 
   return (
     <div>
-      <ModuleHeader eyebrow="Módulo · Faculdade" title="Configurações" tabs={COLLEGE_TABS} />
+      <ModuleHeader eyebrow="Módulo · Faculdade" title="Configurar" tabs={COLLEGE_TABS} />
 
-      <p className="mb-6 text-sm" style={{ color: 'var(--hub-muted)', maxWidth: '640px' }}>
-        Estado local e limites assumidos para manter o modulo simples.
-      </p>
+      <Card className="mb-5">
+        <ListRow
+          to="/faculdade/configurar/sigaa"
+          label={<><p className="text-sm" style={{ color: 'var(--hub-text)' }}>Importar do SIGAA</p><p className="mt-0.5 text-xs" style={{ color: 'var(--hub-subtle)' }}>Revisar o que a última sincronização trouxe</p></>}
+          value={<span style={{ color: 'var(--hub-subtle)' }}>→</span>}
+        />
+        <ListRow
+          to="/configuracoes/conexoes"
+          last
+          label={<><p className="text-sm" style={{ color: 'var(--hub-text)' }}>Conexão com a faculdade</p><p className="mt-0.5 text-xs" style={{ color: 'var(--hub-subtle)' }}>Instituição e login do SIGAA</p></>}
+          value={<span style={{ color: 'var(--hub-subtle)' }}>→</span>}
+        />
+      </Card>
 
       <Card className="mb-5">
         <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-3">
@@ -105,17 +116,17 @@ export function CollegeSettingsPage() {
 
         <div className="mt-3 flex flex-wrap items-end gap-4">
           <label className="block" style={{ minWidth: '150px' }}>
-            <span className="mb-1 block" style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+            <span className="mb-1 block" style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
               Início
             </span>
-            <input type="date" className="w-full" value={breakStart} onChange={(e) => setBreakStart(e.target.value)} />
+            <DateInput className="w-full" value={breakStart} onChange={setBreakStart} ariaLabel="Início das férias" />
           </label>
 
           <label className="block" style={{ minWidth: '150px' }}>
-            <span className="mb-1 block" style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+            <span className="mb-1 block" style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
               Fim
             </span>
-            <input type="date" className="w-full" value={breakEnd} onChange={(e) => setBreakEnd(e.target.value)} />
+            <DateInput className="w-full" value={breakEnd} onChange={setBreakEnd} ariaLabel="Fim das férias" />
           </label>
 
           <button
@@ -162,7 +173,7 @@ export function CollegeSettingsPage() {
         ) : (
           <div className="mt-3 flex flex-wrap items-end gap-4">
             <label className="block" style={{ minWidth: '160px' }}>
-              <span className="mb-1 block" style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+              <span className="mb-1 block" style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
                 Semestre
               </span>
               <Select value={selectedSemester} onChange={setSelectedSemester}>
@@ -192,7 +203,7 @@ export function CollegeSettingsPage() {
       <Card className="mb-5" style={{ borderLeft: '2px solid var(--hub-negative)' }}>
         <h3 className="text-sm font-semibold" style={{ color: 'var(--hub-negative)' }}>Limpar todos os dados</h3>
         <p className="mt-1 text-xs leading-5" style={{ color: 'var(--hub-subtle)' }}>
-          Remove disciplinas, tarefas, avaliacoes, notas e materiais do localStorage. Util para recomecar ou apos testes. Nao ha como desfazer.
+          Remove disciplinas, tarefas, avaliacoes, notas e materiais do Olimpo. Util para recomecar ou apos testes. Nao ha como desfazer.
         </p>
         <button
           className="mt-3 text-sm font-medium transition-opacity hover:opacity-70"
@@ -208,12 +219,12 @@ export function CollegeSettingsPage() {
         <Card>
           <h3 className="text-sm font-semibold" style={{ color: 'var(--hub-text)' }}>Persistencia local</h3>
           <p className="mt-2 text-xs leading-5" style={{ color: 'var(--hub-subtle)' }}>
-            A interface conversa com services do modulo Faculdade. Esses services usam o storage adapter existente do Hub e guardam dados nas chaves locais abaixo.
+            A interface conversa com services do modulo Faculdade. Esses services usam o storage adapter existente do Olimpo e guardam dados nas chaves locais abaixo.
           </p>
           <div className="mt-4 grid gap-0">
             {Object.entries(collegeStorageKeys).map(([name, key], i, arr) => (
               <div key={key} className="py-2" style={{ borderBottom: i === arr.length - 1 ? 'none' : '1px solid var(--hub-border)' }}>
-                <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+                <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                   {name}
                 </span>
                 <code className="text-sm" style={{ color: 'var(--hub-muted)' }}>{key}</code>
@@ -243,7 +254,7 @@ export function CollegeSettingsPage() {
 function Metric({ label, value, last = false }: { label: string; value: number | string; last?: boolean }) {
   return (
     <div className="py-3" style={{ borderBottom: last ? 'none' : '1px solid var(--hub-border)' }}>
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       <strong className="mt-2 block text-xl" style={{ color: 'var(--hub-text)' }}>{value}</strong>

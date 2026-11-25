@@ -17,9 +17,10 @@ import {
 } from '../../core/ai/aiConfig';
 import { notifyAiConfigChanged } from '../../core/ai/useAiAvailable';
 import { JarvisSettings } from '../../core/jarvis/JarvisSettings';
+import { useSession } from '../../core/session/session';
 
 const labelStyle = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
@@ -27,7 +28,7 @@ const labelStyle = {
 } as const;
 
 const sectionTitleStyle = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase',
   letterSpacing: '0.13em',
@@ -234,7 +235,7 @@ function SlotCard({ slot, attempt, providers, hasKey, canSaveKey, onChanged }: S
               onChange={(e) => setBaseUrl(e.target.value)}
             />
             <span className="mt-1 block text-xs" style={{ color: 'var(--hub-subtle)' }}>
-              Quem alcança esta URL é o servidor do Hub, não este aparelho.
+              Quem alcança esta URL é o servidor do Olimpo, não este aparelho.
             </span>
           </label>
         )}
@@ -299,6 +300,7 @@ function SlotCard({ slot, attempt, providers, hasKey, canSaveKey, onChanged }: S
 }
 
 export function AiSettingsPage() {
+  const session = useSession();
   const [providers, setProviders] = useState<AiProviderMeta[]>([]);
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [loadError, setLoadError] = useState('');
@@ -337,7 +339,7 @@ export function AiSettingsPage() {
 
       {loadError && (
         <p className="text-sm" style={{ color: 'var(--hub-negative)' }}>
-          ✗ {loadError} — o servidor do Hub precisa estar no ar para configurar a IA.
+          ✗ {loadError} — o servidor do Olimpo precisa estar no ar para configurar a IA.
         </p>
       )}
 
@@ -363,13 +365,15 @@ export function AiSettingsPage() {
         />
       ))}
 
+      {session.isOwner && (
       <Card>
-        <h2 style={sectionTitleStyle}>Jarvis</h2>
+        <h2 style={sectionTitleStyle}>Íris</h2>
         <p className="mt-1.5 mb-4 text-sm leading-6" style={{ color: 'var(--hub-text-body)' }}>
           O assistente usa a chave da Anthropic do servidor, separada dos slots acima.
         </p>
         <JarvisSettings />
       </Card>
+      )}
 
       <Card>
         <h2 style={sectionTitleStyle}>Privacidade</h2>

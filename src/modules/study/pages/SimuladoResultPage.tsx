@@ -135,7 +135,7 @@ export function SimuladoResultPage() {
               className="space-y-3 py-4"
               style={{ borderBottom: '1px solid var(--hub-border)' }}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>{question.subjectTag}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>{question.subjectTag}</p>
               <MathText content={question.statement} className="text-sm" style={{ color: 'var(--hub-text)' }} />
 
               <div className="space-y-1">

@@ -21,7 +21,7 @@ export const plannerAlertProvider: AlertProvider = {
           title: 'Plano semanal não gerado',
           description: 'Gere o plano para organizar as sessões desta semana',
           actionLabel: 'Gerar plano',
-          actionRoute: '/plano-semanal',
+          actionRoute: '/planner/semana',
         });
       }
     }
@@ -38,10 +38,10 @@ export const plannerAlertProvider: AlertProvider = {
             id: 'planner-sessions-unmarked',
             moduleId: 'planner',
             severity: 'info',
-            title: `${unmarked.length} sessão(ões) de hoje sem registro`,
+            title: `${unmarked.length} ${unmarked.length === 1 ? 'sessão' : 'sessões'} de hoje sem registro`,
             description: 'Marque como feito, parcial ou pulado antes de dormir',
-            actionLabel: 'Ver plano',
-            actionRoute: '/plano-semanal',
+            actionLabel: 'Marcar',
+            actionRoute: '/planner',
           });
         }
       }

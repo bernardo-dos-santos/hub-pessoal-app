@@ -79,6 +79,7 @@ function matchCategoryByAliases(description: string) {
 function findManualCategoryRule(input: ClassificationInput) {
   return categoryRuleService.findMatchingCategoryRule({
     description: input.description,
+    amount: Number(input.amount),
     category: input.category,
     manualCategory: input.manualCategory,
     scope: input.scope,
@@ -145,7 +146,8 @@ export function suggestCategory(input: ClassificationInput): Omit<CategoryClassi
       confidence: ruleMatch.kind ? 'high' : ruleMatch.confidence,
       reason: ruleMatch.reason,
       needsReview: false,
-      manualCategory: true,
+      // The rule's choice, not the person's — if the rule is fixed, this follows.
+      manualCategory: false,
     };
   }
 
@@ -235,7 +237,7 @@ export function classifyTransactionDraft(input: ClassificationInput): CategoryCl
       confidence: 'high',
       reason: `${ruleMatch.reason} Tipo sugerido explicitamente pela regra manual.`,
       needsReview: false,
-      manualCategory: true,
+      manualCategory: false,
     };
   }
 

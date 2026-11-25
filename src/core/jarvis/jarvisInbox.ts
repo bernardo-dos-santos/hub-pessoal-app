@@ -24,6 +24,8 @@ export type InboxItem = {
   createdAt: string;
   readAt: string | null;
   undo?: InboxUndo;
+  /** Also went out as a push (server/jarvis/tools/self.js caps these per day). */
+  pushed?: boolean;
   relatedKeys?: string[];
 };
 

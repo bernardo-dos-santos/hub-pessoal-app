@@ -12,7 +12,7 @@ type ProgressBarProps = {
 
 /**
  * Barra de progresso — trilho neutro + preenchimento colorido por semântica.
- * Default neutro (terracota-progress) quando não carrega sinal positivo/negativo.
+ * Default neutro (--hub-progress) quando não carrega sinal positivo/negativo.
  */
 export function ProgressBar({
   value,
@@ -28,8 +28,8 @@ export function ProgressBar({
       className={className}
       style={{
         height: `${height}px`,
-        borderRadius: '99px',
-        background: 'rgba(58,44,34,0.08)',
+        borderRadius: 'var(--hub-radius-control)',
+        background: 'var(--hub-track)',
         overflow: 'hidden',
       }}
     >
@@ -37,7 +37,7 @@ export function ProgressBar({
         style={{
           width: `${pct}%`,
           height: '100%',
-          borderRadius: '99px',
+          borderRadius: 'var(--hub-radius-control)',
           background: signalColor(signal),
           transition: 'width 0.3s ease',
         }}

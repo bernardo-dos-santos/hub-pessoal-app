@@ -38,9 +38,10 @@ export type FinanceSummary = {
   grossExpenses: number;
   refundAdjustments: number;
   netExpenses: number;
+  /** "Gastei": everything consumed in the month — card purchases on their own date, minus refunds. */
   expenses: number;
-  cashExpenses: number; // cash-only (expense kind), excludes card_purchase
-  balance: number;     // income − cashExpenses − cardPayments (two-pool model)
+  /** "Sobrou": income − expenses. Paying the card bill, transfers and investments are neutral. */
+  balance: number;
   pendingIncomeReview: number;
   pendingExpenseReview: number;
   cardPurchases: number;
@@ -69,6 +70,8 @@ export type MonthlyComparisonDelta = {
 export type MonthlyFinanceComparison = {
   currentMonth: string;
   previousMonth: string;
+  /** Set while the month is under way: the previous one is cut at the same point (`YYYY-MM-DD`). */
+  previousUntil?: string;
   currentSummary: MonthlyFinanceSummary;
   previousSummary: MonthlyFinanceSummary;
   deltas: {

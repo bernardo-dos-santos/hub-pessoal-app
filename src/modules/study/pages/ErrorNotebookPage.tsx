@@ -147,7 +147,7 @@ export function ErrorNotebookPage() {
                 <div className="flex items-start justify-between gap-2">
                   <MathText content={question.statement} className="text-sm leading-snug" style={{ color: 'var(--hub-text)' }} />
                   <span
-                    className="shrink-0 text-[10px] font-semibold"
+                    className="shrink-0 text-[11px] font-semibold"
                     style={{ color: STATUS_COLOR[entry.status] }}
                   >
                     {STATUS_LABEL[entry.status]}
@@ -177,10 +177,10 @@ export function ErrorNotebookPage() {
                 </div>
 
                 {entry.reason === 'unknown' && (
-                  <p className="text-[10px] italic" style={{ color: 'var(--hub-subtle)' }}>Não respondida / "Não sei"</p>
+                  <p className="text-[11px] italic" style={{ color: 'var(--hub-subtle)' }}>Não respondida / "Não sei"</p>
                 )}
                 {entry.timesFailed > 1 && (
-                  <p className="text-[10px]" style={{ color: 'color-mix(in srgb, var(--hub-negative) 70%, transparent)' }}>{entry.timesFailed}× errada</p>
+                  <p className="text-[11px]" style={{ color: 'var(--hub-negative)' }}>{entry.timesFailed}× errada</p>
                 )}
 
                 <ExplainErrorButton question={question} chosenOption={entry.chosenOption} />

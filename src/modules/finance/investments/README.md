@@ -127,9 +127,8 @@ linha se não for lembrado explicitamente no prompt.
   recusado com instrução pra registrar pelo app, porque aporte em moeda
   estrangeira precisa do câmbio do dia — sem isso o histórico nasce torto
   (mesma razão da Fase 1). A posição (`totalInvested`/`currentValue`) é
-  recalculada no servidor com a mesma regra de `calculatePosition` — **duplicada
-  em JS puro** porque o servidor não importa TS do frontend; se a regra de
-  posição mudar em `investmentMovementService.ts`, replique aqui também.
+  recalculada no servidor com o mesmo `calculatePosition` (`src/shared/finance/investmentPosition.js`,
+  importado pelo app e pelo servidor).
 
 ## Fora desta etapa
 
@@ -140,20 +139,9 @@ linha se não for lembrado explicitamente no prompt.
 
 Qualquer IA futura deve ser IA consultiva. Nenhuma ação financeira sensível deve ser executada automaticamente.
 
-## Atualização — sync com Pluggy (Open Finance)
+## Atualização — sync com Pluggy (removido em 2026-11)
 
-Investimentos ganhou um segundo modo, além do manual: sincronização **read-only**
-de posições de corretora conectada via Pluggy (`services/pluggyInvestmentSyncService.ts`).
-Não é execução nem integração ativa com corretora — é leitura de saldo/posição já
-existente, mesmo padrão de leitura usado pra conta corrente/cartão. Continua sem
-cotação externa, sem recomendação e sem qualquer ação automática de compra/venda.
-
-- `Investment.source` diferencia `'manual'` (ausente = manual, por compatibilidade
-  com investimentos criados antes desse campo existir) de `'pluggy'`.
-- Sync é sempre por botão explícito na página — nunca automático ao abrir.
-- Merge por `externalId`: posição já sincronizada é atualizada, nunca duplicada.
-  Investimento manual nunca é tocado pelo sync.
-- **Sem posição real pra validar o mapeamento de tipo** (a corretora testada não
-  tinha posição aberta) — os campos e enums usados seguem a documentação oficial
-  da Pluggy, não dado empírico. Revisar se o primeiro sync com posição real vier
-  com tipo errado.
+Houve um sync read-only de posições de corretora via Pluggy (Open Finance). Foi
+removido junto com toda a integração Pluggy — não funcionava nem para o dono.
+`Investment.source === 'pluggy'` continua aceito para as posições que ele criou;
+elas seguem editáveis como qualquer investimento manual.

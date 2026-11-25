@@ -1,112 +1,198 @@
 /**
- * scripts/generate-icon.mjs — gera a identidade visual do Hub (orb Terracota).
+ * scripts/generate-icon.mjs — the Olimpo's visual identity: the Íris's arcs.
  *
- * O ícone é o orb de pontos do Jarvis (esfera de Fibonacci) nas cores do DS
- * Terracota, sobre o creme --hub-bg com cantos arredondados. Saídas:
- *   public/icon.svg               — manifest PWA (any) + favicon
+ * The same drawing as src/core/jarvis/IrisMark.tsx at rest: three upper
+ * half-arcs over one baseline, fading inward, in the dark theme's indigo on
+ * its ground. Outputs:
+ *   public/icon.svg               — PWA manifest (any) + favicon
  *   public/icon-192.png           — manifest + apple-touch-icon
  *   public/icon-512.png           — manifest
  *   public/icon-maskable-512.png  — manifest (maskable, full-bleed)
- *   public/hub.ico                — atalhos do Windows (16/32/48 BMP + 256 PNG)
+ *   public/hub.ico                — Windows shortcuts (16/32/48 BMP + 256 PNG)
+ *   android/.../mipmap-*\/ic_launcher*.png — the APK's launcher icons (legacy
+ *     tile, round, and the adaptive icon's foreground/background layers)
+ *   android/.../drawable/ic_stat_hub.xml — status-bar icon: Android only uses
+ *     its alpha there (white silhouette)
+ *   android/.../drawable/splash_iris.xml — Android 12+ launch screen: the arcs
+ *     draw themselves inside out, like the web app's opening (IrisMark "intro")
+ *   android/.../values/olimpo_colors.xml — ground + accent for the above
  *
- * Rodar: node scripts/generate-icon.mjs
+ * Run: node scripts/generate-icon.mjs
  */
 
 import { writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 
-// ── Paleta (espelho de src/styles/global.css) ─────────────────────────────────
-const BG = { r: 0xf7, g: 0xf1, b: 0xe6 };            // --hub-bg
-const DOT_LIGHT = { r: 0xd9, g: 0x8a, b: 0x63 };     // terracota claro (frente/topo)
-const DOT_DARK = { r: 0xa6, g: 0x45, b: 0x2e };      // --hub-primary-strong (fundo)
+// ── Palette (mirror of the dark theme in src/styles/global.css) ──────────────
+const BG = { r: 0x0c, g: 0x0d, b: 0x11 };     // --hub-bg (dark)
+const LINE = { r: 0x8b, g: 0x8c, b: 0xf6 };   // --hub-accent (dark)
+// Notification tint shows on the (usually light) notification shade: the light theme's accent.
+const NOTIFICATION = '#5254CC';               // --hub-accent (light)
+const hex = (c) => `#${[c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 
-// ── Esfera de Fibonacci (mesma ideia do Orb 3D real) ──────────────────────────
-function orbDots() {
-  const N = 620;
-  const golden = Math.PI * (3 - Math.sqrt(5));
-  const tiltX = -0.42;
-  const rotY = 0.55;
-  const dots = [];
-  for (let i = 0; i < N; i++) {
-    const y = 1 - (i / (N - 1)) * 2;
-    const r = Math.sqrt(1 - y * y);
-    const theta = golden * i;
-    let x = Math.cos(theta) * r;
-    let z = Math.sin(theta) * r;
-    let py = y;
-    // rotação Y
-    const x1 = x * Math.cos(rotY) + z * Math.sin(rotY);
-    const z1 = -x * Math.sin(rotY) + z * Math.cos(rotY);
-    // tilt X
-    const y2 = py * Math.cos(tiltX) - z1 * Math.sin(tiltX);
-    const z2 = py * Math.sin(tiltX) + z1 * Math.cos(tiltX);
-    dots.push({ x: x1, y: y2, z: z2 });
-  }
-  dots.sort((a, b) => a.z - b.z); // pinta de trás pra frente
-  return dots;
+// ── The mark, in drawing units (y up, origin at the baseline's center) ───────
+const RADII = [1.5, 1.0, 0.5];          // outer, middle, inner — same ratios as IrisMark
+const ALPHA = [1, 0.62, 0.36];          // fades inward, like IrisMark at rest
+const MID_Y = 0.75;                     // vertical middle of the drawing (baseline 0, top 1.5)
+
+function halfArc(r) {
+  const n = 64;
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const a = Math.PI - (Math.PI * i) / n;
+    return [Math.cos(a) * r, Math.sin(a) * r];
+  });
 }
 
-function dotStyle(d) {
-  const depth = (d.z + 1) / 2;                        // 0 = fundo, 1 = frente
-  const light = Math.max(0, (-d.x - d.y + 1.4) / 2.8); // luz vindo do topo-esquerda
-  const t = Math.min(1, light * 0.55 + depth * 0.25);
-  const mix = (a, b) => Math.round(a + (b - a) * t);
-  return {
-    r: mix(DOT_DARK.r, DOT_LIGHT.r),
-    g: mix(DOT_DARK.g, DOT_LIGHT.g),
-    b: mix(DOT_DARK.b, DOT_LIGHT.b),
-    alpha: 0.20 + Math.pow(depth, 1.3) * 0.80,
-    radius: 0.40 + Math.pow(depth, 1.15) * 1.05, // em "unidades de ponto" (escala aplicada depois)
-  };
+/** Strokes of the mark; `width` is in drawing units. */
+function mark(width, alphas = ALPHA) {
+  return RADII.map((r, i) => ({ points: halfArc(r), width, alpha: alphas[i] }));
 }
 
 // ── SVG ───────────────────────────────────────────────────────────────────────
 function buildSvg() {
-  const S = 512, C = 256, R = 152, DOT = 4.1;
-  const circles = orbDots().map((d) => {
-    const s = dotStyle(d);
-    const cx = (C + d.x * R).toFixed(1);
-    const cy = (C + d.y * R).toFixed(1);
-    return `<circle cx="${cx}" cy="${cy}" r="${(s.radius * DOT).toFixed(2)}" fill="rgb(${s.r},${s.g},${s.b})" fill-opacity="${s.alpha.toFixed(2)}"/>`;
-  });
+  const S = 512, scale = 120;
+  const X = (x) => (S / 2 + x * scale).toFixed(1);
+  const Y = (y) => (S / 2 - (y - MID_Y) * scale).toFixed(1);
+  const rgb = (c) => `rgb(${c.r},${c.g},${c.b})`;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${S} ${S}">`,
-    `<rect width="${S}" height="${S}" rx="112" fill="rgb(${BG.r},${BG.g},${BG.b})"/>`,
-    ...circles,
+    `<rect width="${S}" height="${S}" rx="112" fill="${rgb(BG)}"/>`,
+    ...mark(0.17).map((s) => `<polyline points="${s.points.map(([x, y]) => `${X(x)},${Y(y)}`).join(' ')}" fill="none" stroke="${rgb(LINE)}" stroke-opacity="${s.alpha}" stroke-width="${(s.width * scale).toFixed(1)}" stroke-linecap="round" stroke-linejoin="round"/>`),
     '</svg>',
+    '',
+  ].join('\n');
+}
+
+// ── Android vector drawables ─────────────────────────────────────────────────
+const GENERATED = '<!-- Generated by scripts/generate-icon.mjs, do not edit by hand. -->';
+
+function buildNotificationIcon() {
+  const scale = 6.4;
+  const X = (x) => (12 + x * scale).toFixed(2);
+  const Y = (y) => (12 - (y - MID_Y) * scale).toFixed(2);
+  // The status bar is tiny: thicker lines and a gentler fade than the icon.
+  const paths = mark(0.27, [1, 0.8, 0.6]).map((s) =>
+    `  <path android:strokeColor="#FFFFFFFF" android:strokeAlpha="${s.alpha}" android:strokeWidth="${(s.width * scale).toFixed(2)}" android:strokeLineCap="round" android:pathData="M${s.points.map(([x, y]) => `${X(x)},${Y(y)}`).join(' L')}"/>`);
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    GENERATED,
+    '<vector xmlns:android="http://schemas.android.com/apk/res/android"',
+    '    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">',
+    ...paths,
+    '</vector>',
+    '',
+  ].join('\n');
+}
+
+/**
+ * Android 12+ splash icon: a 288dp canvas whose content must fit the central
+ * 192dp circle. Each arc's trimPathEnd goes 0 → 1, inner first — the same
+ * "intro" the web app plays while it loads.
+ */
+function buildSplashIcon() {
+  const scale = 52;
+  const X = (x) => (144 + x * scale).toFixed(1);
+  const Y = (y) => (144 - (y - MID_Y) * scale).toFixed(1);
+  const names = ['outer', 'middle', 'inner'];
+  const paths = RADII.map((r, i) =>
+    `      <path android:name="${names[i]}" android:pathData="M${X(-r)},${Y(0)} A${(r * scale).toFixed(1)},${(r * scale).toFixed(1)} 0 0,1 ${X(r)},${Y(0)}" android:strokeColor="${hex(LINE)}" android:strokeAlpha="${ALPHA[i]}" android:strokeWidth="7" android:strokeLineCap="round" android:trimPathEnd="0"/>`);
+  const targets = names.map((name, i) => [
+    `  <target android:name="${name}">`,
+    '    <aapt:attr name="android:animation">',
+    `      <objectAnimator android:propertyName="trimPathEnd" android:valueFrom="0" android:valueTo="1" android:valueType="floatType" android:duration="600" android:startOffset="${(2 - i) * 160}" android:interpolator="@android:interpolator/decelerate_cubic"/>`,
+    '    </aapt:attr>',
+    '  </target>',
+  ].join('\n'));
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    GENERATED,
+    '<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"',
+    '    xmlns:aapt="http://schemas.android.com/aapt">',
+    '  <aapt:attr name="android:drawable">',
+    '    <vector android:width="288dp" android:height="288dp" android:viewportWidth="288" android:viewportHeight="288">',
+    ...paths,
+    '    </vector>',
+    '  </aapt:attr>',
+    ...targets,
+    '</animated-vector>',
+    '',
+  ].join('\n');
+}
+
+function buildColors() {
+  return [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    GENERATED,
+    '<resources>',
+    `    <color name="olimpo_bg">${hex(BG)}</color>`,
+    `    <color name="olimpo_accent">${hex(LINE)}</color>`,
+    '    <!-- Tints the push notification icon (AndroidManifest default_notification_color). -->',
+    `    <color name="hub_notification">${NOTIFICATION}</color>`,
+    '</resources>',
+    '',
   ].join('\n');
 }
 
 // ── Raster RGBA ───────────────────────────────────────────────────────────────
-function render(size, { fullBleed = false } = {}) {
-  const px = Buffer.alloc(size * size * 4);
-  const rx = fullBleed ? 0 : size * 0.219;
+function blend(px, i, c, a) {
+  const outA = a + (px[i + 3] / 255) * (1 - a);
+  if (outA === 0) return;
+  const k = a / outA;
+  px[i] = Math.round(c.r * k + px[i] * (1 - k));
+  px[i + 1] = Math.round(c.g * k + px[i + 1] * (1 - k));
+  px[i + 2] = Math.round(c.b * k + px[i + 2] * (1 - k));
+  px[i + 3] = Math.round(outA * 255);
+}
 
-  // fundo creme com cantos arredondados (antialias por distância)
-  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
-    const dx = Math.max(rx - x - 0.5, x + 0.5 - (size - rx), 0);
-    const dy = Math.max(rx - y - 0.5, y + 0.5 - (size - rx), 0);
-    const a = rx === 0 ? 1 : Math.max(0, Math.min(1, rx - Math.hypot(dx, dy) + (dx || dy ? 0.5 : rx)));
-    const i = (y * size + x) * 4;
-    px[i] = BG.r; px[i + 1] = BG.g; px[i + 2] = BG.b; px[i + 3] = Math.round(a * 255);
+function segDistance(px, py, ax, ay, bx, by) {
+  const dx = bx - ax, dy = by - ay;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+}
+
+/** Coverage (0–1) of the ground at a pixel for each tile shape. */
+function groundAlpha(shape, size, x, y) {
+  if (shape === 'square') return 1;
+  if (shape === 'circle') {
+    const r = size / 2;
+    return Math.max(0, Math.min(1, r - Math.hypot(x + 0.5 - r, y + 0.5 - r) + 0.5));
   }
+  // 'rounded' — a launcher tile
+  const rx = size * 0.219;
+  const dx = Math.max(rx - x - 0.5, x + 0.5 - (size - rx), 0);
+  const dy = Math.max(rx - y - 0.5, y + 0.5 - (size - rx), 0);
+  return dx || dy ? Math.max(0, Math.min(1, rx - Math.hypot(dx, dy) + 0.5)) : 1;
+}
 
-  // orb (no maskable, orb um pouco menor — zona segura de 80%)
-  const C = size / 2, R = size * (fullBleed ? 0.24 : 0.297), DOT = size / 125;
-  for (const d of orbDots()) {
-    const s = dotStyle(d);
-    const cx = C + d.x * R, cy = C + d.y * R, rad = s.radius * DOT;
-    for (let y = Math.floor(cy - rad - 1); y <= Math.ceil(cy + rad + 1); y++) {
-      for (let x = Math.floor(cx - rad - 1); x <= Math.ceil(cx + rad + 1); x++) {
-        if (x < 0 || y < 0 || x >= size || y >= size) continue;
-        const cov = Math.max(0, Math.min(1, rad - Math.hypot(x + 0.5 - cx, y + 0.5 - cy) + 0.5));
-        if (cov === 0) continue;
-        const a = cov * s.alpha;
-        const i = (y * size + x) * 4;
-        px[i]     = Math.round(s.r * a + px[i] * (1 - a));
-        px[i + 1] = Math.round(s.g * a + px[i + 1] * (1 - a));
-        px[i + 2] = Math.round(s.b * a + px[i + 2] * (1 - a));
-        px[i + 3] = Math.max(px[i + 3], Math.round(a * 255));
+/**
+ * Renders the mark at `size`. `scale` is px per drawing unit (the mark is 3
+ * units wide); `shape` is the ground: 'rounded' tile, 'circle', 'square'
+ * (full-bleed) or 'none' (transparent, the adaptive icon's foreground).
+ */
+function render(size, { scale, shape = 'rounded', width = 0.17 }) {
+  const px = Buffer.alloc(size * size * 4);
+  if (shape !== 'none') {
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      px[i] = BG.r; px[i + 1] = BG.g; px[i + 2] = BG.b; px[i + 3] = Math.round(groundAlpha(shape, size, x, y) * 255);
+    }
+  }
+  const X = (x) => size / 2 + x * scale;
+  const Y = (y) => size / 2 - (y - MID_Y) * scale;
+  const inside = (x, y) => x >= 0 && y >= 0 && x < size && y < size;
+
+  for (const s of mark(width)) {
+    const pts = s.points.map(([x, y]) => [X(x), Y(y)]);
+    const half = (s.width * scale) / 2;
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    for (let y = Math.floor(Math.min(...ys) - half - 1); y <= Math.ceil(Math.max(...ys) + half + 1); y++) {
+      for (let x = Math.floor(Math.min(...xs) - half - 1); x <= Math.ceil(Math.max(...xs) + half + 1); x++) {
+        if (!inside(x, y)) continue;
+        let d = Infinity;
+        for (let k = 0; k < pts.length - 1; k++) d = Math.min(d, segDistance(x + 0.5, y + 0.5, pts[k][0], pts[k][1], pts[k + 1][0], pts[k + 1][1]));
+        const cov = Math.max(0, Math.min(1, half - d + 0.5));
+        if (cov > 0) blend(px, (y * size + x) * 4, LINE, cov * s.alpha);
       }
     }
   }
@@ -158,7 +244,7 @@ function encodePng(px, size) {
   ]);
 }
 function icoBmpEntry(px, size) {
-  // BITMAPINFOHEADER + BGRA bottom-up + máscara AND zerada
+  // BITMAPINFOHEADER + bottom-up BGRA + zeroed AND mask
   const header = Buffer.alloc(40);
   header.writeUInt32LE(40, 0);
   header.writeInt32LE(size, 4);
@@ -188,19 +274,44 @@ function encodeIco(entries) {
   return Buffer.concat([dir, ...heads, ...bodies]);
 }
 
-// ── Gera tudo ─────────────────────────────────────────────────────────────────
-const big = render(512);
-const bigMask = render(512, { fullBleed: true });
+// ── Generate everything ───────────────────────────────────────────────────────
+// A launcher tile shows the whole square: there the mark fills ~70% of the
+// width. Maskable, round and adaptive icons get cropped to a circle (80% / 66%
+// safe zones), so there it's drawn smaller. Tiny sizes get thicker lines.
+// Everything is drawn at a large size and downsampled — that's the antialiasing.
+const at512 = (opts) => render(512, opts);
+const tile = at512({ scale: 120 });
+const round = at512({ scale: 100, shape: 'circle' });
+// The adaptive layers are inset 16.7% by mipmap-anydpi-v26/ic_launcher*.xml,
+// so these 512px images already are the visible tile.
+const foreground = at512({ scale: 100, shape: 'none' });
+const background = Buffer.alloc(512 * 512 * 4);
+for (let i = 0; i < background.length; i += 4) {
+  background[i] = BG.r; background[i + 1] = BG.g; background[i + 2] = BG.b; background[i + 3] = 255;
+}
 
 writeFileSync('public/icon.svg', buildSvg());
-writeFileSync('public/icon-512.png', encodePng(big, 512));
-writeFileSync('public/icon-192.png', encodePng(downsample(big, 512, 192), 192));
-writeFileSync('public/icon-maskable-512.png', encodePng(bigMask, 512));
+writeFileSync('public/icon-512.png', encodePng(tile, 512));
+writeFileSync('public/icon-192.png', encodePng(downsample(tile, 512, 192), 192));
+writeFileSync('public/icon-maskable-512.png', encodePng(at512({ scale: 96, shape: 'square' }), 512));
 writeFileSync('public/hub.ico', encodeIco([
-  { size: 16, data: icoBmpEntry(downsample(big, 512, 16), 16) },
-  { size: 32, data: icoBmpEntry(downsample(big, 512, 32), 32) },
-  { size: 48, data: icoBmpEntry(downsample(big, 512, 48), 48) },
-  { size: 256, data: encodePng(downsample(big, 512, 256), 256) },
+  { size: 16, data: icoBmpEntry(downsample(at512({ scale: 140, width: 0.3 }), 512, 16), 16) },
+  { size: 32, data: icoBmpEntry(downsample(at512({ scale: 132, width: 0.24 }), 512, 32), 32) },
+  { size: 48, data: icoBmpEntry(downsample(tile, 512, 48), 48) },
+  { size: 256, data: encodePng(downsample(tile, 512, 256), 256) },
 ]));
 
-console.log('gerados: icon.svg, icon-192.png, icon-512.png, icon-maskable-512.png, hub.ico');
+const RES = 'android/app/src/main/res';
+const DENSITIES = { ldpi: 36, mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+for (const [density, size] of Object.entries(DENSITIES)) {
+  const dir = `${RES}/mipmap-${density}`;
+  writeFileSync(`${dir}/ic_launcher.png`, encodePng(downsample(tile, 512, size), size));
+  writeFileSync(`${dir}/ic_launcher_round.png`, encodePng(downsample(round, 512, size), size));
+  writeFileSync(`${dir}/ic_launcher_foreground.png`, encodePng(downsample(foreground, 512, size), size));
+  writeFileSync(`${dir}/ic_launcher_background.png`, encodePng(downsample(background, 512, size), size));
+}
+writeFileSync(`${RES}/drawable/ic_stat_hub.xml`, buildNotificationIcon());
+writeFileSync(`${RES}/drawable/splash_iris.xml`, buildSplashIcon());
+writeFileSync(`${RES}/values/olimpo_colors.xml`, buildColors());
+
+console.log('gerados: icon.svg, icon-192/512, icon-maskable-512, hub.ico, mipmap-*/ic_launcher*, ic_stat_hub.xml, splash_iris.xml, olimpo_colors.xml');

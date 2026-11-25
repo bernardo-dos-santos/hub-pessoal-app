@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { Orb } from './Orb';
+import { IrisMark, irisModeFor } from './IrisMark';
 import { useJarvisVoice } from './JarvisVoiceContext';
+import { hub, tint } from '../../shared/ui';
 
 interface VoiceOrbProps {
   /** Some com a tela cheia e MANTÉM a conversa (vira a pílula). */
@@ -39,7 +40,7 @@ export function VoiceOrb({ onCollapse, onStop }: VoiceOrbProps) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'rgba(247,241,230,0.95)',
+        background: tint(hub.bg, 95),
         backdropFilter: 'blur(18px)',
         WebkitBackdropFilter: 'blur(18px)',
       }}
@@ -49,7 +50,7 @@ export function VoiceOrb({ onCollapse, onStop }: VoiceOrbProps) {
         style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '40px', cursor: 'pointer' }}
         onClick={(e) => { e.stopPropagation(); retry(); }}
       >
-        <Orb size={200} />
+        <IrisMark size={300} mode={irisModeFor(state)} />
 
         <div style={{ textAlign: 'center', maxWidth: '280px' }}>
           <p style={{
@@ -60,11 +61,11 @@ export function VoiceOrb({ onCollapse, onStop }: VoiceOrbProps) {
             textTransform: 'uppercase',
             color: 'var(--hub-primary)',
           }}>
-            JARVIS
+            ÍRIS
           </p>
           <p style={{
             margin: '6px 0 0',
-            fontSize: '10px',
+            fontSize: '11px',
             letterSpacing: '0.10em',
             textTransform: 'uppercase',
             color: 'var(--hub-subtle)',

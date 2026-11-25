@@ -1,15 +1,17 @@
 import { type FormEvent, useState } from 'react';
 import { Navigate, useNavigate, useParams } from 'react-router-dom';
-import { Card, ModuleHeader, Select } from '../../../shared/ui';
+import { Card, ModuleHeader, Select, useConfirm } from '../../../shared/ui';
 import { rpgCampaignService } from '../services/rpgCampaignService';
 import { type RpgCampaignStatus } from '../types/rpg';
 
 type DetailTab = 'overview' | 'notes';
 
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
-const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-pointer appearance-none';
+// Layout only — the base layer in global.css already styles bare inputs.
+const inputClass = 'w-full text-sm';
+const selectClass = 'w-full text-sm';
 
 export function RpgCampaignDetailPage() {
+  const confirmAction = useConfirm();
   const { campaignId } = useParams<{ campaignId: string }>();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<DetailTab>('overview');
@@ -51,8 +53,8 @@ export function RpgCampaignDetailPage() {
     setMessage('Notas salvas.');
   }
 
-  function handleDelete() {
-    if (!window.confirm(`Excluir a campanha "${campaign!.name}"?`)) {
+  async function handleDelete() {
+    if (!(await confirmAction(`Excluir a campanha "${campaign!.name}"?`))) {
       return;
     }
 
@@ -124,7 +126,7 @@ export function RpgCampaignDetailPage() {
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

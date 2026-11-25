@@ -1,53 +1,13 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { workoutService } from '../services/workoutService';
-import { type Workout, type WorkoutType } from '../types/workout';
-import { Card } from '../../../shared/ui';
+import { type Workout } from '../types/workout';
+import { Card, DateInput, ModuleHeader } from '../../../shared/ui';
+import { getFitnessTabs } from '../components/fitnessTabs';
+import { WORKOUT_TYPE_EMOJI, WORKOUT_TYPE_LABEL, shortWorkoutDate, workoutValue } from '../components/workoutFormat';
 
-const typeLabel: Record<WorkoutType, string> = {
-  running:  'Corrida',
-  sit_up:   'Abdominal',
-  push_up:  'Flexão',
-  pull_up:  'Barra',
-  swimming: 'Natação',
-  strength: 'Musculação',
-  other:    'Outro',
-};
 
-const typeEmoji: Record<WorkoutType, string> = {
-  running:  '🏃',
-  sit_up:   '💪',
-  push_up:  '🤸',
-  pull_up:  '🏋️',
-  swimming: '🏊',
-  strength: '🏆',
-  other:    '⚡',
-};
-
-function workoutValue(workout: Workout): string {
-  if (workout.distanceMeters) {
-    const dist = `${workout.distanceMeters}m`;
-    if (workout.durationSeconds) {
-      const min = Math.floor(workout.durationSeconds / 60);
-      const sec = (workout.durationSeconds % 60).toString().padStart(2, '0');
-      return `${dist} · ${min}:${sec}`;
-    }
-    return dist;
-  }
-  if (workout.reps) {
-    return workout.sets ? `${workout.sets}×${workout.reps} reps` : `${workout.reps} reps`;
-  }
-  return '—';
-}
-
-function shortDate(dateStr: string): string {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-}
-
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none transition-colors';
-const inputStyle = { borderBottom: '1px solid var(--hub-border-strong)', color: 'var(--hub-text)' };
-
-export function WorkoutLogPage() {
+function WorkoutLogPageBody() {
   const [workouts, setWorkouts] = useState(() => workoutService.listWorkouts());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -99,10 +59,10 @@ export function WorkoutLogPage() {
             style={{ padding: '13px 0', borderBottom: i === workouts.length - 1 ? 'none' : '1px solid var(--hub-border)' }}
           >
             <div className="flex items-center gap-3">
-              <span className="text-xl">{typeEmoji[workout.type]}</span>
+              <span className="text-xl">{WORKOUT_TYPE_EMOJI[workout.type]}</span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium" style={{ color: 'var(--hub-text)' }}>
-                  {typeLabel[workout.type]}
+                  {WORKOUT_TYPE_LABEL[workout.type]}
                 </p>
                 <p className="text-xs tabular-nums" style={{ color: 'var(--hub-muted)' }}>
                   {workoutValue(workout)}
@@ -114,7 +74,7 @@ export function WorkoutLogPage() {
                 )}
               </div>
               <p className="shrink-0 text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
-                {shortDate(workout.date)}
+                {shortWorkoutDate(workout.date)}
               </p>
             </div>
 
@@ -176,22 +136,22 @@ function EditWorkoutCard({ workout, onSave, onCancel }: { workout: Workout; onSa
   return (
     <div className="py-4" style={{ borderBottom: '1px solid var(--hub-border)' }}>
       <p className="mb-3 text-sm font-semibold" style={{ color: 'var(--hub-primary-strong)' }}>
-        {typeEmoji[workout.type]} Editar {typeLabel[workout.type]}
+        {WORKOUT_TYPE_EMOJI[workout.type]} Editar {WORKOUT_TYPE_LABEL[workout.type]}
       </p>
       <div className="space-y-4">
         {isRunning && (
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="mb-1 block text-xs" style={lbl}>Distância (m)</label>
-              <input type="number" value={distance} onChange={(e) => setDistance(e.target.value)} className={inputClass} style={inputStyle} />
+              <input type="number" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs" style={lbl}>Min</label>
-              <input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} className={inputClass} style={inputStyle} />
+              <input type="number" value={minutes} onChange={(e) => setMinutes(e.target.value)} className="w-full text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs" style={lbl}>Seg</label>
-              <input type="number" value={seconds} onChange={(e) => setSeconds(e.target.value)} className={inputClass} style={inputStyle} />
+              <input type="number" value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-full text-sm" />
             </div>
           </div>
         )}
@@ -199,21 +159,21 @@ function EditWorkoutCard({ workout, onSave, onCancel }: { workout: Workout; onSa
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-1 block text-xs" style={lbl}>Repetições</label>
-              <input type="number" value={reps} onChange={(e) => setReps(e.target.value)} className={inputClass} style={inputStyle} />
+              <input type="number" value={reps} onChange={(e) => setReps(e.target.value)} className="w-full text-sm" />
             </div>
             <div>
               <label className="mb-1 block text-xs" style={lbl}>Séries</label>
-              <input type="number" value={sets} onChange={(e) => setSets(e.target.value)} className={inputClass} style={inputStyle} />
+              <input type="number" value={sets} onChange={(e) => setSets(e.target.value)} className="w-full text-sm" />
             </div>
           </div>
         )}
         <div>
           <label className="mb-1 block text-xs" style={lbl}>Data</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} style={inputStyle} />
+          <DateInput className="w-full" value={date} onChange={setDate} ariaLabel="Data do treino" />
         </div>
         <div>
           <label className="mb-1 block text-xs" style={lbl}>Notas</label>
-          <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className={inputClass} style={inputStyle} />
+          <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full text-sm" />
         </div>
         <div className="flex items-center gap-5 pt-1">
           <button onClick={save} className="text-sm font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-primary)', background: 'none', border: 'none', cursor: 'pointer' }}>
@@ -223,6 +183,17 @@ function EditWorkoutCard({ workout, onSave, onCancel }: { workout: Workout; onSa
             Cancelar
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function WorkoutLogPage() {
+  return (
+    <div>
+      <ModuleHeader eyebrow="Módulo · Treino" title="Histórico" tabs={getFitnessTabs()} />
+      <div className="space-y-6">
+        <WorkoutLogPageBody />
       </div>
     </div>
   );

@@ -36,12 +36,6 @@ export const SYNCS = {
     args: ['--headless'],
     hint: 'Abre o SIGAA num navegador headless e traz notas, tarefas e materiais. Leva alguns minutos.',
   },
-  pluggy: {
-    label: 'Pluggy (banco)',
-    script: 'scripts/sync/pluggy-sync.js',
-    args: [],
-    hint: 'Puxa transações e investimentos via Open Finance para a fila de revisão.',
-  },
 };
 
 /** Uma execução por sync de cada vez — dois Puppeteer no mesmo SIGAA se atrapalham. */
@@ -62,7 +56,7 @@ export function startSync(which) {
 
   const startedAt = Date.now();
   // process.execPath = o mesmo node que roda o servidor; o filho herda o
-  // process.env (que veio do --env-file no start), então PLUGGY_* e afins
+  // process.env (que veio do --env-file no start), então as variáveis
   // chegam sem precisar repassar nada.
   const child = spawn(process.execPath, [sync.script, ...sync.args], {
     cwd: REPO_ROOT,

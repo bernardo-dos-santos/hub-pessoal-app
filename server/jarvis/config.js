@@ -47,7 +47,7 @@ export function modelCaps(model) {
  * acesso mínimo, ou o mais barato com acesso total.
  */
 export const MACHINE_LEVELS = {
-  0: { label: 'Nenhum',              hint: 'Sem agente. O Jarvis só mexe no próprio Hub.' },
+  0: { label: 'Nenhum',              hint: 'Sem agente. A Íris só mexe no próprio Olimpo.' },
   1: { label: 'Observar',            hint: 'Lê arquivos da pasta-sandbox, lista diretórios, tira screenshot. Não escreve nada.' },
   2: { label: 'Agir com confirmação', hint: 'Abre apps e URLs, controla mídia, escreve na sandbox. Qualquer outro comando espera você aprovar.' },
   3: { label: 'Allowlist livre',     hint: 'Comandos de leitura conhecidos rodam direto. O resto ainda pede aprovação.' },

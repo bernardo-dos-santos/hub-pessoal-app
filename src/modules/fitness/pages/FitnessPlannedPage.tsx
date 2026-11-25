@@ -1,3 +1,5 @@
+import { getFitnessTabs } from '../components/fitnessTabs';
+import { ModuleHeader } from '../../../shared/ui';
 import { useState } from 'react';
 import { aiFitnessPlannedService, type FitnessTrainingPlan, type TrainingSession } from '../services/aiFitnessPlannedService';
 import { Card, Button, Eyebrow } from '../../../shared/ui';
@@ -25,7 +27,7 @@ function SessionCard({ session, last }: { session: TrainingSession; last: boolea
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--hub-label)' }}>
+            <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--hub-label)' }}>
               {session.day}
             </p>
             <p className="mt-0.5 text-sm font-medium" style={{ color: 'var(--hub-text)' }}>{session.title}</p>
@@ -34,7 +36,7 @@ function SessionCard({ session, last }: { session: TrainingSession; last: boolea
             </p>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-[10px]" style={{ color: 'var(--hub-label)' }}>{TYPE_LABEL[session.type]}</p>
+            <p className="text-[11px]" style={{ color: 'var(--hub-label)' }}>{TYPE_LABEL[session.type]}</p>
             <p className="text-xs font-medium tabular-nums" style={{ color }}>{session.durationMinutes}min</p>
           </div>
         </div>
@@ -43,7 +45,7 @@ function SessionCard({ session, last }: { session: TrainingSession; last: boolea
   );
 }
 
-export function FitnessPlannedPage() {
+function FitnessPlannedPageBody() {
   const [plan, setPlan] = useState<FitnessTrainingPlan | null>(() => aiFitnessPlannedService.getCachedPlan());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export function FitnessPlannedPage() {
       <Card>
         <Eyebrow>Plano de treino</Eyebrow>
         <p className="mt-1 text-xs" style={{ color: 'var(--hub-muted)' }}>
-          Adaptativo — gerado por IA baseado no seu TAF e histórico
+          Adaptativo — gerado por IA a partir do seu histórico
         </p>
         <div className="mt-4">
           <Button variant={plan ? 'text' : 'primary'} onClick={handleGenerate} disabled={loading}>
@@ -90,11 +92,11 @@ export function FitnessPlannedPage() {
             <div>
               <Eyebrow>Fase {plan.phase} · {plan.totalWeeks} semanas</Eyebrow>
               <p className="mt-1 text-sm font-medium" style={{ color: 'var(--hub-text)' }}>{plan.objective}</p>
-              <p className="mt-1 text-[10px]" style={{ color: 'var(--hub-subtle)' }}>
+              <p className="mt-1 text-[11px]" style={{ color: 'var(--hub-subtle)' }}>
                 Gerado em {new Date(plan.generatedAt).toLocaleString('pt-BR')}
               </p>
             </div>
-            <button onClick={handleClear} className="text-[10px] transition-opacity hover:opacity-70" style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
+            <button onClick={handleClear} className="text-[11px] transition-opacity hover:opacity-70" style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}>
               Limpar
             </button>
           </div>
@@ -125,6 +127,17 @@ export function FitnessPlannedPage() {
           ))}
         </Card>
       )}
+    </div>
+  );
+}
+
+export function FitnessPlannedPage() {
+  return (
+    <div>
+      <ModuleHeader eyebrow="Módulo · Treino" title="Plano de treino" tabs={getFitnessTabs()} />
+      <div className="space-y-6">
+        <FitnessPlannedPageBody />
+      </div>
     </div>
   );
 }

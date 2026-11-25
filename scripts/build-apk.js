@@ -55,6 +55,16 @@ function findJdk() {
   return null;
 }
 
+// The push plugin calls Firebase on register(); without google-services.json in
+// the APK that call crashes the app the moment someone turns notifications on.
+// Refuse the build instead of shipping that.
+const GOOGLE_SERVICES = resolve(ANDROID_DIR, 'app/google-services.json');
+if (!existsSync(GOOGLE_SERVICES)) {
+  console.error('\n[build-apk] android/app/google-services.json ausente — sem ele o APK fecha ao ativar notificações.');
+  console.error('[build-apk] Baixe no console do Firebase (projeto do Hub → app Android com.bernardo.hubpessoal).\n');
+  process.exit(1);
+}
+
 const jdk = findJdk();
 if (!jdk) {
   console.error(`\n[build-apk] Nenhum JDK ${MIN_JAVA}+ encontrado — o Capacitor 8 exige essa versão.`);
@@ -68,6 +78,15 @@ if (jdk.home !== process.env.JAVA_HOME) {
 }
 
 const task = process.argv.includes('--release') ? 'assembleRelease' : 'assembleDebug';
+
+// Version = number of commits on HEAD: it only grows, so the self-update
+// (AppUpdatePlugin + /api/app/android) can tell a newer APK from an older one.
+// Uncommitted changes don't bump it — commit before `npm run apk:release`.
+const git = (args) => spawnSync('git', args, { cwd: resolve(__dirname, '..'), encoding: 'utf-8' }).stdout.trim();
+const versionCode = Number(git(['rev-list', '--count', 'HEAD'])) || 1;
+const versionName = `1.${versionCode} (${git(['rev-parse', '--short', 'HEAD'])})`;
+const versionArgs = [`-PhubVersionCode=${versionCode}`, `-PhubVersionName=${versionName}`];
+console.log(`[build-apk] Versão ${versionName} (código ${versionCode})`);
 const isWindows = process.platform === 'win32';
 
 // Caminho ABSOLUTO e entre aspas, não `gradlew.bat` solto: o cmd só procura no
@@ -87,8 +106,8 @@ const options = {
 // Node 24 deprecou (DEP0190) — os argumentos são concatenados sem escapar.
 // Fora do Windows, args separados e sem shell: nada a escapar.
 const result = isWindows
-  ? spawnSync(`"${wrapper}" ${task} --console=plain`, { ...options, shell: true })
-  : spawnSync(wrapper, [task, '--console=plain'], options);
+  ? spawnSync(`"${wrapper}" ${task} --console=plain ${versionArgs.map((a) => `"${a}"`).join(' ')}`, { ...options, shell: true })
+  : spawnSync(wrapper, [task, '--console=plain', ...versionArgs], options);
 
 if (result.error) {
   console.error(`\n[build-apk] Não consegui rodar o Gradle: ${result.error.message}\n`);

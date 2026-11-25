@@ -123,7 +123,7 @@ export function ErrorDrillPage() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-sm" style={{ color: 'var(--hub-text)' }}>{question.subjectTag}</p>
-                    <span className="text-[10px] font-semibold" style={{ color: 'var(--hub-negative)' }}>
+                    <span className="text-[11px] font-semibold" style={{ color: 'var(--hub-negative)' }}>
                       {entry.timesFailed}x erro
                     </span>
                   </div>
@@ -176,7 +176,7 @@ export function ErrorDrillPage() {
         </details>
 
         <div className="space-y-2">
-          <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Sua resposta</label>
+          <label className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Sua resposta</label>
           <textarea
             value={state.userAnswer}
             onChange={(e) => setState({ ...state, userAnswer: e.target.value })}
@@ -217,7 +217,7 @@ export function ErrorDrillPage() {
         </div>
 
         <div className="py-3" style={{ borderLeft: '2px solid var(--hub-border)', paddingLeft: '12px' }}>
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Resposta esperada</p>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Resposta esperada</p>
           <MathText content={state.drillQuestion.answer} className="text-sm" style={{ color: 'var(--hub-muted)' }} />
         </div>
 

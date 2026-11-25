@@ -74,8 +74,8 @@ export async function handleJarvisChat(messages, { onTextDelta } = {}) {
     // Gemini/Ollama aqui recebem texto puro. Anunciar a foto que não foi
     // enviada é melhor do que omitir: assim o modelo diz que não consegue ver,
     // em vez de responder com confiança sobre uma imagem inexistente.
-    .map((m) => `${m.role === 'user' ? 'Bernardo' : 'JARVIS'}: ${m.content}`
-      + (m.image ? ' [o Senhor anexou uma foto, que este modelo de fallback não consegue ver]' : ''))
+    .map((m) => `${m.role === 'user' ? 'Bernardo' : 'Íris'}: ${m.content}`
+      + (m.image ? ' [o Bernardo anexou uma foto, que este modelo de fallback não consegue ver]' : ''))
     .join('\n');
   // 0.7: com persona irônica, 0.5 deixava as respostas sem graça e repetitivas.
   const text = await callAi(`${PERSONA_PROMPT}\n\n${contextPrompt}\n\nConversa:\n${historyText}`, { temperature: 0.7 });

@@ -1,7 +1,12 @@
 import { type AlertProvider, type HubAlert } from '../../../core/alerts/alert-types';
+import { syncAlert } from '../../../core/alerts/syncAlert';
+import { getSession } from '../../../core/session/session';
+import { collegeBreakService } from '../services/collegeBreakService';
+import { collegeConnectionService } from '../services/collegeConnectionService';
 import { assessmentService } from '../services/assessmentService';
 import { taskService } from '../services/taskService';
 import { todayKey } from '../utils/collegePeriod';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 function daysUntil(dateStr: string): number {
   const today = new Date();
@@ -13,7 +18,7 @@ function daysUntil(dateStr: string): number {
 function in7DaysKey(): string {
   const d = new Date();
   d.setDate(d.getDate() + 7);
-  return d.toISOString().split('T')[0];
+  return localDayKey(d);
 }
 
 export const collegeAlertProvider: AlertProvider = {
@@ -62,6 +67,19 @@ export const collegeAlertProvider: AlertProvider = {
         actionLabel: 'Ver tarefas',
         actionRoute: '/faculdade/tarefas',
       });
+    }
+
+    // ── A conexão com o SIGAA (de quem não é o dono — o dele está na saúde do sistema) ──
+    if (!getSession().isOwner && collegeConnectionService.usesSigaa()) {
+      const alert = syncAlert({
+        id: 'college-sigaa',
+        moduleId: 'college',
+        label: 'SIGAA',
+        record: collegeConnectionService.lastSync(),
+        everyHours: 24,
+        quietIsExpected: collegeBreakService.isOnBreak(collegeBreakService.get()),
+      });
+      if (alert) alerts.push(alert);
     }
 
     return alerts;

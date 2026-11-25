@@ -1,4 +1,5 @@
 import { storageAdapter } from '../../../core/storage/storage.adapter';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 const KEY = 'college.semesterBreak';
 
@@ -9,7 +10,7 @@ export type SemesterBreak = {
 };
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 export const collegeBreakService = {

@@ -70,7 +70,7 @@ export const AI_SLOT_DEFAULT_PROVIDER: Record<AiSlotId, AiProviderName> = {
 };
 
 export const AI_SLOT_HELP: Record<AiSlotId, string> = {
-  principal: 'Obrigatório. Sem ele o Hub não tem IA — nenhuma função de IA aparece.',
+  principal: 'Obrigatório. Sem ele o Olimpo não tem IA — nenhuma função de IA aparece.',
   secundaria: 'Opcional. É por onde toda chamada começa: gasta a cota gratuita antes da paga.',
   fallback: 'Opcional. Última tentativa, quando os dois anteriores falham.',
 };

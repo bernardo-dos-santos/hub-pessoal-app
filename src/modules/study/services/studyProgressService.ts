@@ -85,7 +85,7 @@ export const studyProgressService = {
   /**
    * Returns the tag with the lowest mastery among all subjects with questions.
    * `excludeTags` é opcional e EXCLUSIVO — ver o comentário em
-   * `errorNotebookService.listPending`, mesma razão (não some tópico de concurso).
+   * `errorNotebookService.listPending`, mesma razão (não some tag sem registro).
    */
   getWeakestTag(excludeTags?: Set<string>): string | null {
     const allTags = questionService.listSubjects().filter((t) => !excludeTags?.has(t));

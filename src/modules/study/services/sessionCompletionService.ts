@@ -1,4 +1,5 @@
 import { updateDailyContext } from '../../../core/context/dailyContext';
+import { isStudyPlanInUse } from '../../../shared/activity/recentActivity';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
 import { weeklyPlanService } from '../../planner/services/weeklyPlanService';
 import { type WeekDay, type WeeklySession, WEEK_DAYS } from '../../planner/types/routine';
@@ -23,6 +24,11 @@ function todayWeekDay(): WeekDay {
 }
 
 export const sessionCompletionService = {
+  /** Whether the weekly plan is actually being followed — gate every nudge about it on this. */
+  isPlanInUse(): boolean {
+    return isStudyPlanInUse(getMap());
+  },
+
   markSession(weekOf: string, sessionIndex: number, status: CompletionStatus): void {
     const map = getMap();
     map[sessionKey(weekOf, sessionIndex)] = status;

@@ -9,10 +9,6 @@ export function sortModulesByOrder(modules: ModuleDefinition[]) {
   return [...modules].sort((current, next) => current.order - next.order);
 }
 
-export function filterHomeModules(modules: ModuleDefinition[]) {
-  return sortModulesByOrder(modules.filter((module) => module.showInHome));
-}
-
 export function findModuleByPath(modules: ModuleDefinition[], path: string) {
   return modules.find((module) => module.basePath === path);
 }

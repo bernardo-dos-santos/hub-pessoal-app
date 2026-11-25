@@ -10,6 +10,7 @@ import {
   type ParserProfile,
 } from '../types/import';
 import { type Transaction } from '../types/transaction';
+import { internalTransferPatch, pairInternalTransfers } from './internalTransferPairingService';
 import { reimbursementService } from './reimbursementService';
 import { findExactDuplicate } from './transactionDeduplicationService';
 import { transactionService } from './transactionService';
@@ -82,8 +83,15 @@ export function createImportBatchMetadata(input: ImportBatchMetadataInput): Impo
   };
 }
 
-function isExactDuplicateAtCommit(transaction: NormalizedTransactionDraft, existingTransactions: Transaction[]) {
-  return Boolean(findExactDuplicate(transaction, existingTransactions));
+/**
+ * Checked against what was already saved, one saved transaction per line —
+ * never against the rest of the same batch: two identical purchases on the
+ * same day are two purchases (the second one used to be dropped here).
+ */
+function takeExactDuplicate(transaction: NormalizedTransactionDraft, existingTransactions: Transaction[], used: Set<string>) {
+  const match = findExactDuplicate(transaction, existingTransactions.filter((existing) => !used.has(existing.id)));
+  if (match) used.add(match.id);
+  return Boolean(match);
 }
 
 export function commitImportSelection(
@@ -97,6 +105,8 @@ export function commitImportSelection(
   const importedTransactions: NormalizedTransactionDraft[] = [];
   let exactDuplicateSkippedCount = 0;
   let possibleDuplicateSkippedCount = 0;
+  const usedExisting = new Set<string>();
+  const existingIds = new Set(existingTransactions.map((transaction) => transaction.id));
 
   for (const item of selection) {
     if (item.disabled || item.duplicateStatus === 'exact_duplicate') {
@@ -112,16 +122,37 @@ export function commitImportSelection(
       continue;
     }
 
-    if (isExactDuplicateAtCommit(item.transaction, [...existingTransactions, ...importedTransactions])) {
+    if (takeExactDuplicate(item.transaction, existingTransactions, usedExisting)) {
       exactDuplicateSkippedCount += 1;
       warnings.push(`Duplicata exata ignorada no commit: ${item.transaction.description}.`);
       continue;
     }
 
-    importedTransactions.push(item.transaction);
+    // A line picked as "not a duplicate" can still carry a saved id (same Nubank
+    // identifier): give it its own, or editing one would edit both.
+    const transaction = existingIds.has(item.transaction.id)
+      ? { ...item.transaction, id: generateId('finance-transaction') }
+      : item.transaction;
+    existingIds.add(transaction.id);
+    importedTransactions.push(transaction);
   }
 
+  // Transfers between the person's own accounts: both ends found (in this batch
+  // or one already saved) become neutral, so the money doesn't count as spending
+  // on one side and income-to-review on the other.
+  // Deleted lines only block a re-import; they are not there to pair with.
+  const pairing = pairInternalTransfers(
+    importedTransactions,
+    existingTransactions.filter((transaction) => !transactionService.isDeletedImport(transaction.id)),
+  );
+  importedTransactions.splice(0, importedTransactions.length, ...pairing.drafts);
   transactionService.addTransactions(importedTransactions);
+  for (const counterpart of pairing.existingCounterparts) {
+    transactionService.updateTransaction(counterpart.id, internalTransferPatch(counterpart.counterpartAccount));
+  }
+  if (pairing.pairedCount > 0) {
+    warnings.push(`${pairing.pairedCount} lançamento(s) reconhecido(s) como transferência entre suas contas.`);
+  }
   reimbursementService.applyReimbursementPairs();
 
   const skippedCount = selection.length - importedTransactions.length;

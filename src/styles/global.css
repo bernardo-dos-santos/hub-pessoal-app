@@ -3,10 +3,13 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Design system "Terracota" — ground claro e quente, cards flutuantes.
-   Hierarquia por peso/tamanho/cor (marrom #3A2C22 em opacidades decrescentes).
-   Tokens são a única fonte de cor — componentes consomem var(--hub-*), nunca
-   literais soltos.
+   Design system "Editorial" — neutro, índigo, cantos leves, divisórias finas.
+   Dois temas com os mesmos nomes de token: claro em :root, escuro em
+   [data-theme="dark"]. O atributo é sempre o tema *resolvido* (o "sistema" já
+   virou claro ou escuro em src/core/theme/theme.ts), por isso só existe um
+   bloco escuro. Cores de texto são sólidas, não opacidades: toda combinação
+   texto/superfície passa o contraste AA (4.5:1). Tokens são a única fonte de
+   cor — componentes consomem var(--hub-*), nunca literais soltos.
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
   color-scheme: light;
@@ -14,46 +17,91 @@
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* Ground e superfícies */
-  --hub-bg: #F7F1E6;
-  --hub-shell: #F7F1E6;
-  --hub-card: #FFFDF8;
-  --hub-header: rgba(247, 241, 230, 0.88);
-  --hub-surface: #FFFDF8;
-  --hub-surface-muted: #F2EADB;
-  --hub-surface-soft: #FBF6EC;
-  --hub-border: rgba(58, 44, 34, 0.09);
-  --hub-border-strong: rgba(58, 44, 34, 0.16);
+  --hub-bg: #F6F6F8;
+  --hub-shell: #F6F6F8;
+  --hub-card: #FFFFFF;
+  --hub-header: color-mix(in srgb, var(--hub-bg) 88%, transparent);
+  --hub-surface: #FFFFFF;
+  --hub-surface-muted: #EEEEF2;
+  --hub-surface-soft: #FAFAFB;
+  --hub-border: rgba(23, 24, 28, 0.1);
+  --hub-border-strong: rgba(23, 24, 28, 0.18);
 
-  /* Texto (marrom #3A2C22 em opacidades) */
-  --hub-text: #3A2C22;
-  --hub-text-strong: #2A1F17;
-  --hub-text-body: rgba(58, 44, 34, 0.76);
-  --hub-muted: rgba(58, 44, 34, 0.55);
-  --hub-subtle: rgba(58, 44, 34, 0.42);
-  --hub-label: rgba(58, 44, 34, 0.42);
-  --hub-disabled: rgba(58, 44, 34, 0.3);
+  /* Texto */
+  --hub-text: #17181C;
+  --hub-text-strong: #0B0C0F;
+  --hub-text-body: #383A42;
+  --hub-muted: #555862;
+  --hub-subtle: #686B75;
+  --hub-label: #686B75;
+  --hub-disabled: #A2A5AE;
 
   /* Cores de sinal (uso semântico — nunca decorativo) */
-  --hub-primary: #C1633D;
-  --hub-primary-strong: #A6452E;
-  --hub-accent: #C1633D;
-  --hub-negative: #A6452E;
-  --hub-positive: #6B7A5E;
-  --hub-warning: #B48A3E;
-  --hub-mauve: #9E7686;
-  --hub-progress: #D99A72;
-  --hub-neutral: #9C6B4A;
+  --hub-primary: #5254CC;
+  --hub-primary-strong: #4143B0;
+  --hub-accent: #5254CC;
+  --hub-negative: #C4382F;
+  --hub-positive: #23784D;
+  --hub-warning: #9A6400;
+  --hub-mauve: #8A548F;
+  --hub-progress: #7C7EEB;
+  --hub-neutral: #686B75;
 
-  /* Sombras — sempre na cor da tinta (rgba 58,44,34), nunca preto neutro */
-  --hub-shadow-chip: 0 2px 8px rgba(58, 44, 34, 0.07);
-  --hub-shadow-card: 0 4px 16px rgba(58, 44, 34, 0.06);
-  --hub-shadow-hero: 0 6px 20px rgba(58, 44, 34, 0.06);
-  --hub-shadow-menu: 0 10px 30px rgba(58, 44, 34, 0.14);
-  --hub-shadow-modal: 0 20px 50px rgba(58, 44, 34, 0.18);
+  /* Elevação: o card é delimitado por uma linha de 1px, não por sombra.
+     Só o que flutua de verdade (menu, modal) ganha sombra. */
+  --hub-shadow-chip: 0 0 0 1px var(--hub-border);
+  --hub-shadow-card: 0 0 0 1px var(--hub-border);
+  --hub-shadow-hero: 0 0 0 1px var(--hub-border);
+  --hub-shadow-menu: 0 0 0 1px var(--hub-border-strong), 0 8px 24px rgba(15, 16, 20, 0.12);
+  --hub-shadow-modal: 0 0 0 1px var(--hub-border-strong), 0 16px 40px rgba(15, 16, 20, 0.18);
+  /* Fundo atrás de modal/diálogo */
+  --hub-overlay: rgba(10, 11, 14, 0.45);
+  /* Texto/ícone sobre preenchimento de destaque (botão primário, badge, toggle) */
+  --hub-on-accent: #FFFFFF;
+  /* Trilho vazio de barra de progresso e de toggle desligado */
+  --hub-track: rgba(23, 24, 28, 0.08);
 
-  /* Raios */
-  --hub-radius-card: 20px;
-  --hub-radius-pill: 999px;
+  /* Raios — leves. Arredondado demais foi o que deu "cara de app genérico". */
+  --hub-radius-card: 6px;
+  --hub-radius-control: 4px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --hub-bg: #0C0D11;
+  --hub-shell: #0C0D11;
+  --hub-card: #14161B;
+  --hub-surface: #14161B;
+  --hub-surface-muted: #1C1F26;
+  --hub-surface-soft: #111317;
+  --hub-border: rgba(255, 255, 255, 0.08);
+  --hub-border-strong: rgba(255, 255, 255, 0.15);
+
+  --hub-text: #E8E9EE;
+  --hub-text-strong: #F6F7F9;
+  --hub-text-body: #C6C8D0;
+  --hub-muted: #A2A6B1;
+  --hub-subtle: #8F93A0;
+  --hub-label: #8F93A0;
+  --hub-disabled: #5C606B;
+
+  --hub-primary: #8B8CF6;
+  --hub-primary-strong: #A9AAFA;
+  --hub-accent: #8B8CF6;
+  --hub-negative: #F08A82;
+  --hub-positive: #5CC896;
+  --hub-warning: #E2B550;
+  --hub-mauve: #C79AD6;
+  --hub-progress: #8B8CF6;
+  --hub-neutral: #A2A6B1;
+
+  --hub-shadow-menu: 0 0 0 1px var(--hub-border-strong), 0 10px 30px rgba(0, 0, 0, 0.5);
+  --hub-shadow-modal: 0 0 0 1px var(--hub-border-strong), 0 20px 50px rgba(0, 0, 0, 0.6);
+  --hub-overlay: rgba(0, 0, 0, 0.6);
+  /* Índigo claro do escuro pede texto escuro em cima (branco ficaria ~3:1) */
+  --hub-on-accent: #0C0D11;
+  --hub-track: rgba(255, 255, 255, 0.08);
 }
 
 body {
@@ -71,6 +119,12 @@ body {
 }
 
 @layer base {
+  /* Checkboxes and radios follow the theme accent — never a Tailwind accent-* color. */
+  input[type='checkbox'],
+  input[type='radio'] {
+    accent-color: var(--hub-accent);
+  }
+
   input,
   select,
   textarea {
@@ -113,20 +167,38 @@ body {
   button:not([class*="bg-"]):not([class*="text-"]):not(.hub-tab):hover {
     opacity: 0.7;
   }
+
+  /* Quem navega pelo teclado precisa ver onde está. Inputs já mostram o foco
+     na própria linha de baixo, por isso ficam de fora. */
+  a:focus-visible,
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid var(--hub-accent);
+    outline-offset: 2px;
+  }
 }
 
-/* ─── Navegação: pills (ativa = fundo terracota translúcido) ──────────────── */
+/* ─── Navegação: abas sublinhadas (ativa = texto forte + traço de destaque) ── */
 @layer components {
-  .hub-nav-link {
+  .hub-nav-link,
+  .hub-tab {
     display: flex;
     align-items: center;
-    height: 34px;
-    padding: 0 15px;
-    border-radius: var(--hub-radius-pill);
-    font-size: 13px;
+    /* 40px: alvo de toque confortável no celular */
+    min-height: 40px;
+    /* Tabs touch each other (no gap in the strip): with a gap the cursor flipped
+       arrow/hand while sweeping across them. The padding keeps the old spacing. */
+    padding: 0 12px;
+    font-size: 14px;
     font-weight: 500;
     color: var(--hub-muted);
-    transition: color 0.15s, background 0.15s, transform 0.15s;
+    background: none;
+    border: none;
+    /* O traço fica sempre lá (transparente) para a aba ativa não "pular" 2px */
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    transition: color 0.15s, border-color 0.15s;
     text-decoration: none;
     cursor: pointer;
     white-space: nowrap;
@@ -134,41 +206,44 @@ body {
     scroll-snap-align: center;
   }
 
-  .hub-nav-link:hover {
-    color: var(--hub-text-body);
-  }
-
-  .hub-nav-link.active {
-    font-weight: 600;
-    color: var(--hub-primary-strong);
-    background: rgba(193, 99, 61, 0.13);
-    transform: scale(1.08);
-  }
-
-  .hub-tab {
-    font-size: 13px;
-    cursor: pointer;
-    padding: 6px 14px;
-    border-radius: var(--hub-radius-pill);
-    transition: color 0.15s, background 0.15s, transform 0.15s;
-    color: var(--hub-muted);
-    background: none;
-    border: none;
-    white-space: nowrap;
-    font-weight: 500;
-    flex-shrink: 0;
-    scroll-snap-align: center;
-  }
-
+  .hub-nav-link:hover,
   .hub-tab:hover {
-    color: var(--hub-text-body);
+    color: var(--hub-text);
   }
 
+  .hub-nav-link.active,
   .hub-tab.active {
-    color: var(--hub-primary-strong);
-    background: rgba(193, 99, 61, 0.13);
-    font-weight: 600;
-    transform: scale(1.08);
+    color: var(--hub-text);
+    border-bottom-color: var(--hub-accent);
+  }
+
+  .hub-nav-link:focus-visible,
+  .hub-tab:focus-visible {
+    outline: 2px solid var(--hub-accent);
+    outline-offset: -2px;
+  }
+
+  /* Resposta de um toque (fila da Revisão): controle contornado, 40px de alvo */
+  .hub-quick-choice {
+    min-height: 40px;
+    padding: 0 14px;
+    font-weight: 500;
+    color: var(--hub-text-body);
+    background: var(--hub-card);
+    border: 1px solid var(--hub-border-strong);
+    border-radius: var(--hub-radius-control);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+  }
+
+  .hub-quick-choice:hover {
+    color: var(--hub-accent);
+    border-color: var(--hub-accent);
+  }
+
+  .hub-quick-choice:focus-visible {
+    outline: 2px solid var(--hub-accent);
+    outline-offset: 2px;
   }
 
   /* Painel flutuante do Select customizado (substitui o dropdown nativo) */
@@ -192,6 +267,17 @@ body {
      isso o padrão é "visível e apagado", e o esconde-e-revela entra só onde o
      dispositivo tem hover de verdade. Mesma ideia do resto: uma superfície só,
      sem variante mobile separada. */
+  /* DateInput: a linha de baixo acompanha o foco do input escondido atrás dela,
+     como faz um <input> comum (ver @layer base). */
+  .hub-date-input {
+    border-bottom: 1px solid var(--hub-border-strong);
+    transition: border-color 150ms ease;
+  }
+
+  label:focus-within > .hub-date-input {
+    border-bottom-color: var(--hub-primary);
+  }
+
   .hub-edit-pencil {
     opacity: 0.3;
     transition: opacity 120ms ease;

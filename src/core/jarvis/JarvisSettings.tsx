@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Card, ProgressBar, Select } from '../../shared/ui';
+import { Card, ProgressBar, Select, StatusDot, type Signal } from '../../shared/ui';
 import { apiUrl } from '../config/backendConfig';
+import { useAgentStatus, type AgentStatus } from './agentStatus';
 import { resetLocationCapabilityCache } from './location';
 
 /**
@@ -91,7 +92,7 @@ const WEB_LABEL: Record<string, string> = {
 };
 
 const LABEL_STYLE = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.1em',
@@ -101,7 +102,7 @@ const LABEL_STYLE = {
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 const SECTION_TITLE = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.13em',
@@ -128,6 +129,50 @@ function projectMonth(spentBrl: number): { projected: number; reliable: boolean 
   };
 }
 
+/** Local time of the agent's last poll, for the "hands" row. */
+function seenAt(iso: string): string {
+  const at = new Date(iso);
+  const time = at.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  if (at.toDateString() === new Date().toDateString()) return `visto às ${time}`;
+  return `visto em ${at.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${time}`;
+}
+
+/**
+ * What the "hands" row says about the local agent.
+ *
+ * The level matters for the tone, not just the text. Level 0 strips the machine
+ * tools from every surface, so a disconnected agent costs nothing there and
+ * reads as neutral information. Above 0 it is a real failure: the tools are on
+ * the model's list and every call will sit until the 30s timeout.
+ */
+function handsRow(
+  status: AgentStatus | null,
+  unreachable: boolean,
+  machineLevel: number,
+): { signal: Signal; label: string; detail: string } {
+  if (unreachable) return { signal: 'neutral', label: 'Não consegui perguntar ao Olimpo.', detail: '' };
+  if (!status) return { signal: 'neutral', label: 'Verificando as mãos…', detail: '' };
+
+  const online = status.devices.filter((d) => d.online);
+  if (online.length > 0) {
+    return {
+      signal: 'positive',
+      label: `Mãos conectadas: ${online.map((d) => d.id).join(', ')}`,
+      detail: status.queued > 0 ? `${status.queued} na fila` : '',
+    };
+  }
+
+  // lastSeenAt is an ISO string, so sorting as text is chronological.
+  const last = status.devices.map((d) => d.lastSeenAt).sort().at(-1);
+  return {
+    signal: machineLevel > 0 ? 'negative' : 'neutral',
+    label: machineLevel > 0
+      ? 'Mãos desconectadas — os comandos de máquina vão falhar por tempo esgotado.'
+      : 'Mãos desconectadas (no nível 0 ela não usa nenhuma, então não muda nada agora).',
+    detail: last ? seenAt(last) : 'nenhum agente se apresentou desde que o servidor subiu',
+  };
+}
+
 export function JarvisSettings() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState('');
@@ -137,6 +182,7 @@ export function JarvisSettings() {
   const [places, setPlaces] = useState<Place[]>([]);
   const [lastPlace, setLastPlace] = useState<LastLocation | null>(null);
   const [placeName, setPlaceName] = useState('');
+  const { status: agent, unreachable: agentUnreachable } = useAgentStatus();
 
   const loadPlaces = () => {
     fetch(apiUrl('/api/jarvis/places'))
@@ -212,12 +258,12 @@ export function JarvisSettings() {
   if (error && !data) {
     return (
       <Card>
-        <p style={SECTION_TITLE}>Jarvis</p>
+        <p style={SECTION_TITLE}>Íris</p>
         <p className="mt-2 text-sm" style={{ color: 'var(--hub-negative)' }}>
           ✗ Não consegui carregar a configuração: {error}
         </p>
         <p className="mt-1 text-sm" style={{ color: 'var(--hub-subtle)' }}>
-          O servidor do Hub precisa estar rodando.
+          O servidor do Olimpo precisa estar rodando.
         </p>
       </Card>
     );
@@ -226,7 +272,7 @@ export function JarvisSettings() {
   if (!data) {
     return (
       <Card>
-        <p style={SECTION_TITLE}>Jarvis</p>
+        <p style={SECTION_TITLE}>Íris</p>
         <p className="mt-2 text-sm" style={{ color: 'var(--hub-subtle)' }}>Carregando…</p>
       </Card>
     );
@@ -237,14 +283,15 @@ export function JarvisSettings() {
   const webOnChatBlocked = config.capabilities.web === 'all' && chatCaps && !chatCaps.webToolsV2;
   const projection = projectMonth(budget.spentBrl);
   const modelIds = Object.keys(models);
+  const hands = handsRow(agent, agentUnreachable, config.capabilities.machine.level);
 
   return (
     <div className="space-y-5">
       {/* ── Nível ────────────────────────────────────────────────────────── */}
       <Card>
-        <p style={SECTION_TITLE}>Nível do Jarvis</p>
+        <p style={SECTION_TITLE}>Nível da Íris</p>
         <p className="mt-2 text-sm" style={{ color: 'var(--hub-muted)' }}>
-          Quanto ele pensa, com que frequência olha as coisas sozinho e quanto isso custa.
+          Quanto ela pensa, com que frequência olha as coisas sozinha e quanto isso custa.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-6">
@@ -281,7 +328,7 @@ export function JarvisSettings() {
       <Card>
         <p style={SECTION_TITLE}>Gasto de {budget.month}</p>
 
-        <p className="mt-3 tabular-nums" style={{ fontSize: '32px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+        <p className="mt-3 tabular-nums" style={{ fontSize: '32px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
           {brl(budget.spentBrl)}
         </p>
         <p className="text-sm tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
@@ -365,9 +412,9 @@ export function JarvisSettings() {
         <p style={SECTION_TITLE}>Modelos</p>
         <div className="mt-3 space-y-4">
           {([
-            ['chat', 'Conversa', 'Responde quando você fala com ele.'],
-            ['tick', 'Verificação automática', 'Olha o Hub sozinho e decide se vale te interromper.'],
-            ['task', 'Tarefa em background', 'Trabalho longo que ele faz sozinho depois de você pedir.'],
+            ['chat', 'Conversa', 'Responde quando você fala com ela.'],
+            ['tick', 'Verificação automática', 'Olha o Olimpo sozinha e decide se vale te interromper.'],
+            ['task', 'Tarefa em background', 'Trabalho longo que ela faz sozinha depois de você pedir.'],
           ] as const).map(([surface, label, hint]) => {
             const dial = config[surface];
             const caps = models[dial.model];
@@ -410,8 +457,8 @@ export function JarvisSettings() {
       <Card>
         <p style={SECTION_TITLE}>Ritmo da verificação automática</p>
         <p className="mt-2 text-xs" style={{ color: 'var(--hub-subtle)' }}>
-          De quanto em quanto tempo ele olha o Hub sozinho, quantas vezes por dia pode falar e
-          entre que horas. Dia parado quase não gasta: ele só chama o modelo quando algo mudou.
+          De quanto em quanto tempo ela olha o Olimpo sozinha, quantas vezes por dia pode falar e
+          entre que horas. Dia parado quase não gasta: ela só chama o modelo quando algo mudou.
         </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -472,7 +519,7 @@ export function JarvisSettings() {
 
         {(config.tick.windowStart ?? 7) >= (config.tick.windowEnd ?? 23) && (
           <p className="mt-3 text-xs" style={{ color: 'var(--hub-warning)' }}>
-            ⚠ A janela começa depois de terminar — com esses horários ele nunca vai verificar nada.
+            ⚠ A janela começa depois de terminar — com esses horários ela nunca vai verificar nada.
           </p>
         )}
         {(config.tick.intervalMinutes ?? 45) >= 60 && (
@@ -485,7 +532,7 @@ export function JarvisSettings() {
 
       {/* ── Capacidades ──────────────────────────────────────────────────── */}
       <Card>
-        <p style={SECTION_TITLE}>O que ele pode fazer</p>
+        <p style={SECTION_TITLE}>O que ela pode fazer</p>
 
         <label className="mt-4 block">
           <span style={LABEL_STYLE}>Acesso à web</span>
@@ -526,6 +573,17 @@ export function JarvisSettings() {
           (site, e-mail, arquivo) sempre espera sua aprovação.
         </p>
 
+        {/* Estado do agente local — ver useAgentStatus para por que isto precisa aparecer. */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <StatusDot signal={hands.signal} size={7} />
+          <span className="text-xs" style={{ color: 'var(--hub-text-body)' }}>{hands.label}</span>
+          {hands.detail && (
+            <span className="text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
+              · {hands.detail}
+            </span>
+          )}
+        </div>
+
         <div className="mt-5 space-y-3">
           {([
             ['google.read', 'Ler Gmail, Agenda e Drive', config.capabilities.google.read],
@@ -550,7 +608,6 @@ export function JarvisSettings() {
                   else void send('/api/jarvis/config', 'PUT', { capabilities: { google: { write: checked } } });
                 }}
                 className="h-4 w-4"
-                style={{ accentColor: 'var(--hub-accent)' }}
               />
               <span className="text-sm" style={{ color: 'var(--hub-text-body)' }}>{label}</span>
             </label>
@@ -566,8 +623,8 @@ export function JarvisSettings() {
         <Card>
           <p style={SECTION_TITLE}>Lugares</p>
           <p className="mt-2 text-xs" style={{ color: 'var(--hub-subtle)' }}>
-            O Jarvis nunca vê coordenada — só o nome do lugar em que você está, e apenas se for um
-            destes. Fora deles, ele não sabe onde você está.
+            A Íris nunca vê coordenada — só o nome do lugar em que você está, e apenas se for um
+            destes. Fora deles, ela não sabe onde você está.
           </p>
 
           <p className="mt-3 text-sm" style={{ color: 'var(--hub-text-body)' }}>
@@ -575,7 +632,7 @@ export function JarvisSettings() {
               ? lastPlace.place
                 ? `Agora: ${lastPlace.place}${lastPlace.minutesAgo !== undefined ? ` (posição de ${lastPlace.minutesAgo} min atrás)` : ''}`
                 : 'Última posição recebida não bate com nenhum lugar salvo.'
-              : 'Nenhuma posição recebida ainda — abra o Hub no celular com a capacidade ligada.'}
+              : 'Nenhuma posição recebida ainda — abra o Olimpo no celular com a capacidade ligada.'}
           </p>
 
           <div className="mt-3 flex items-center gap-3">

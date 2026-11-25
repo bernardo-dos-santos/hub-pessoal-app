@@ -1,19 +1,19 @@
 // nubank-invoice-parser.js
-// Parseia o PDF de fatura do Nubank e gera public/nubank-invoice-pending.json
+// Parseia o PDF de fatura do Nubank e gera data/pending/nubank-invoice-pending.json
 //
 // Uso: node scripts/sync/nubank-invoice-parser.js <caminho-do-pdf>
 // Exemplo: node scripts/sync/nubank-invoice-parser.js "C:\Users\Bernardo\Downloads\Nubank_2026-05-12.pdf"
 //
-// Output: public/nubank-invoice-pending.json
+// Output: data/pending/nubank-invoice-pending.json
 
 import { PDFParse } from 'pdf-parse';
-import { readFile, writeFile } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { pendingPath, writePending } from '../../server/pendingFiles.js';
+// The owner's Gmail and card — per-user invoice import comes later in F3.
+import { OWNER_ID } from '../../server/userContext.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = resolve(__dirname, '../..');
-const OUTPUT_PATH = resolve(ROOT, 'public/nubank-invoice-pending.json');
+const OUTPUT_PATH = pendingPath('nubank-invoice', OWNER_ID);
 
 const MONTH_MAP = {
   JAN: '01', FEV: '02', MAR: '03', ABR: '04',
@@ -34,7 +34,7 @@ const RX_ESTORNO = new RegExp(
 );
 
 // Regex: extrai ano da linha "FATURA 12 MAI 2026"
-const RX_FATURA_YEAR = /FATURA\s+\d{2}\s+(?:JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(\d{4})/;
+const RX_FATURA_YEAR = /FATURA\s+\d{2}\s+(JAN|FEV|MAR|ABR|MAI|JUN|JUL|AGO|SET|OUT|NOV|DEZ)\s+(\d{4})/;
 
 // Regex: parcela  "- Parcela 2/2"
 const RX_PARCELA = /[-–]\s*Parcela\s+(\d+)\/(\d+)/i;
@@ -46,6 +46,16 @@ function parseAmount(str) {
 
 function toISODate(day, month, year) {
   return `${year}-${MONTH_MAP[month]}-${day.padStart(2, '0')}`;
+}
+
+/**
+ * The year of a purchase listed on the bill. Lines carry only day + month: a
+ * December purchase on a January bill is from the year before — using the
+ * bill's year put it twelve months in the future, out of its month and of Revisar.
+ */
+function purchaseYear(month, invoiceMonth, invoiceYear) {
+  if (!invoiceMonth) return invoiceYear;
+  return Number(MONTH_MAP[month]) > Number(invoiceMonth) ? String(Number(invoiceYear) - 1) : invoiceYear;
 }
 
 function shouldSkip(line) {
@@ -67,9 +77,10 @@ function parsePdfText(text, pdfFilename) {
 
   // Extrai ano da fatura
   let invoiceYear = new Date().getFullYear().toString();
+  let invoiceMonth = null;
   for (const line of lines) {
     const m = line.match(RX_FATURA_YEAR);
-    if (m) { invoiceYear = m[1]; break; }
+    if (m) { invoiceMonth = MONTH_MAP[m[1]]; invoiceYear = m[2]; break; }
   }
 
   // Determina limite: para no bloco de "Pagamentos e Financiamentos"
@@ -92,7 +103,7 @@ function parsePdfText(text, pdfFilename) {
     if (estornoMatch) {
       const [, day, month, description, amountStr] = estornoMatch;
       transactions.push({
-        date: toISODate(day, month, invoiceYear),
+        date: toISODate(day, month, purchaseYear(month, invoiceMonth, invoiceYear)),
         description: `Estorno: ${description}`,
         amount: -parseAmount(amountStr), // negativo = crédito/estorno
         isRefund: true,
@@ -110,7 +121,7 @@ function parsePdfText(text, pdfFilename) {
       const parcelaMatch = description.match(RX_PARCELA);
       const cleanDesc = description.replace(RX_PARCELA, '').trim();
       transactions.push({
-        date: toISODate(day, month, invoiceYear),
+        date: toISODate(day, month, purchaseYear(month, invoiceMonth, invoiceYear)),
         description: cleanDesc,
         amount: parseAmount(amountStr),
         isRefund: false,
@@ -138,7 +149,7 @@ function parsePdfText(text, pdfFilename) {
         }
         if (amount > 0) {
           transactions.push({
-            date: toISODate(day, month, invoiceYear),
+            date: toISODate(day, month, purchaseYear(month, invoiceMonth, invoiceYear)),
             description: description.trim(),
             amount,
             isRefund: false,
@@ -185,9 +196,9 @@ async function main() {
     transactions,
   };
 
-  await writeFile(OUTPUT_PATH, JSON.stringify(output, null, 2));
+  writePending('nubank-invoice', JSON.stringify(output, null, 2), OWNER_ID);
 
-  console.log(`[nubank-invoice-parser] ${transactions.length} transações extraídas → public/nubank-invoice-pending.json`);
+  console.log(`[nubank-invoice-parser] ${transactions.length} transações extraídas → ${OUTPUT_PATH}`);
   console.log('[nubank-invoice-parser] Amostra das primeiras 5:');
   transactions.slice(0, 5).forEach(t =>
     console.log(`  ${t.date}  ${t.description.padEnd(35)} R$ ${t.amount.toFixed(2)}`)

@@ -7,17 +7,17 @@ type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const VARIANT_STYLE: Record<Variant, CSSProperties> = {
-  // Ação primária — pill preenchida terracota.
+  // Ação primária — preenchida com a cor de destaque.
   primary: {
     background: 'var(--hub-primary)',
-    color: '#FFF8F0',
-    borderRadius: 'var(--hub-radius-pill)',
+    color: 'var(--hub-on-accent)',
+    borderRadius: 'var(--hub-radius-control)',
     padding: '10px 24px',
     fontWeight: 600,
     fontSize: '14px',
     border: 'none',
   },
-  // Ação de texto terracota (link/CTA leve).
+  // Ação de texto na cor de destaque (link/CTA leve).
   text: {
     background: 'none',
     color: 'var(--hub-primary)',

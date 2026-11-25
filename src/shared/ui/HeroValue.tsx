@@ -20,7 +20,7 @@ export function HeroValue({ children, size = 52, color = 'var(--hub-text)', clas
       style={{
         display: 'inline-block',
         fontSize: `${size}px`,
-        fontWeight: 300,
+        fontWeight: 400,
         letterSpacing: '-0.02em',
         lineHeight: 1.05,
         color,

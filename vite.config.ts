@@ -13,15 +13,15 @@ export default defineConfig({
       filename: 'sw.ts',
       injectManifest: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
-        // three.js empurra o chunk acima de 2 MiB; precache até 4 MiB p/ offline.
+        // O chunk principal passa do limite padrão de 2 MiB; precache até 4 MiB p/ offline.
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
       },
       manifest: {
-        name: 'Hub Pessoal',
-        short_name: 'Hub',
-        description: 'Hub Pessoal — Finanças, Estudos, Faculdade, Treinos e Planner.',
-        theme_color: '#F7F1E6',
-        background_color: '#F7F1E6',
+        name: 'Olimpo',
+        short_name: 'Olimpo',
+        description: 'Olimpo — Finanças, Estudos, Faculdade, Treinos e Planner, com a Íris.',
+        theme_color: '#0C0D11',
+        background_color: '#0C0D11',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
@@ -57,16 +57,6 @@ export default defineConfig({
       },
     }),
   ],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // three.js num chunk próprio — mantém o bundle principal enxuto.
-          three: ['three'],
-        },
-      },
-    },
-  },
   server: {
     host: true,
     port: process.env.PORT ? Number(process.env.PORT) : 5173,

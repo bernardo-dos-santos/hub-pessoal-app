@@ -2,15 +2,8 @@
 // os itens das 3 zonas da homepage. Sem side effects.
 
 import { getDailyContext } from '../context/dailyContext';
-import { invoiceService } from '../../modules/finance/services/invoiceService';
 import { financeSummaryService } from '../../modules/finance/services/financeSummaryService';
 import type { HomepageItem, RankedItems } from './homepageTypes';
-
-function daysUntil(dateStr: string): number {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.ceil((new Date(dateStr).getTime() - today.getTime()) / 86_400_000);
-}
 
 function pluralPt(n: number, singular: string, plural: string): string {
   return n === 1 ? singular : plural;
@@ -94,35 +87,8 @@ export function getRankedItems(): RankedItems {
     });
   }
 
-  // ── Finance — faturas críticas (≤ 2 dias) ──────────────────────────────────
-  try {
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() + 2);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-
-    const critical = invoiceService
-      .listInvoices()
-      .filter((inv) => inv.dueDate && inv.dueDate >= todayStr && inv.dueDate <= cutoffStr && inv.status !== 'paid');
-
-    if (critical.length > 0) {
-      const inv = critical[0];
-      const d = daysUntil(inv.dueDate!);
-      const when = d <= 0 ? 'hoje' : d === 1 ? 'amanhã' : `em ${d} dias`;
-      now.push({
-        id: 'finance-invoice-critical',
-        module: 'finance',
-        score: 90,
-        zone: 'now',
-        title: `Fatura vence ${when}`,
-        subtitle: fmtBRL(inv.total),
-        badgeColor: 'red',
-        route: '/financeiro/cartoes',
-      });
-    }
-  } catch {
-    // invoiceService pode não estar disponível antes do bootstrap
-  }
+  // Bill due, budget over and lines to review are finance alerts — the Home shows
+  // them in "Precisa de você" (AlertsCard). Ranking them here too listed each twice.
 
   // ── Finance — saldo baixo ───────────────────────────────────────────────────
   try {
@@ -156,21 +122,6 @@ export function getRankedItems(): RankedItems {
     // financeSummaryService pode falhar antes do bootstrap
   }
 
-  // ── Finance — orçamentos excedidos ─────────────────────────────────────────
-  if (ctx.finance.budgetsExceeded > 0) {
-    now.push({
-      id: 'finance-budget-exceeded',
-      module: 'finance',
-      score: 72,
-      zone: 'now',
-      title: `${ctx.finance.budgetsExceeded} ${pluralPt(ctx.finance.budgetsExceeded, 'orçamento excedido', 'orçamentos excedidos')}`,
-      subtitle: 'Limite ultrapassado',
-      badge: String(ctx.finance.budgetsExceeded),
-      badgeColor: 'red',
-      route: '/financeiro/orcamentos',
-    });
-  }
-
   // ── Finance — resumo mensal disponível ────────────────────────────────────
   if (ctx.finance.monthlyReportMonth) {
     const [yr, mo] = ctx.finance.monthlyReportMonth.split('-');
@@ -185,21 +136,6 @@ export function getRankedItems(): RankedItems {
       badge: 'Novo',
       badgeColor: 'blue',
       route: `/financeiro/resumo/${ctx.finance.monthlyReportMonth}`,
-    });
-  }
-
-  // ── Finance — revisão pendente ─────────────────────────────────────────────
-  if (ctx.finance.pendingReview > 0) {
-    progress.push({
-      id: 'finance-pending',
-      module: 'finance',
-      score: 30,
-      zone: 'progress',
-      title: `${ctx.finance.pendingReview} ${pluralPt(ctx.finance.pendingReview, 'transação para revisar', 'transações para revisar')}`,
-      subtitle: 'Importadas automaticamente',
-      badge: String(ctx.finance.pendingReview),
-      badgeColor: 'yellow',
-      route: '/financeiro/revisao',
     });
   }
 

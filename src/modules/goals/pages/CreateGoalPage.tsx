@@ -2,20 +2,13 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { goalService } from '../services/goalService';
 import { type GoalCategory } from '../types/goal';
-import { Card, Button, BackButton, Eyebrow } from '../../../shared/ui';
-
-const CATEGORIES: { value: GoalCategory; label: string; emoji: string }[] = [
-  { value: 'concurso',   label: 'Concurso',   emoji: '🚒' },
-  { value: 'financeiro', label: 'Financeiro', emoji: '💰' },
-  { value: 'saude',      label: 'Saúde',      emoji: '💪' },
-  { value: 'faculdade',  label: 'Faculdade',  emoji: '🎓' },
-  { value: 'pessoal',    label: 'Pessoal',    emoji: '⭐' },
-];
+import { GOAL_CATEGORIES } from '../data/goalCategories';
+import { Card, Button, ModuleHeader, DateInput, hub, tint } from '../../../shared/ui';
 
 const labelStyle: React.CSSProperties = {
   display: 'block',
   marginBottom: '6px',
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 600,
   textTransform: 'uppercase',
   letterSpacing: '0.1em',
@@ -26,7 +19,7 @@ export function CreateGoalPage() {
   const navigate = useNavigate();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState<GoalCategory>('concurso');
+  const [category, setCategory] = useState<GoalCategory>('pessoal');
   const [targetDate, setTargetDate] = useState('');
   const [keyResults, setKeyResults] = useState<string[]>(['']);
 
@@ -57,18 +50,14 @@ export function CreateGoalPage() {
 
   return (
     <div className="space-y-5">
-      <div>
-        <div className="mb-2"><BackButton /></div>
-        <Eyebrow>Módulo · Objetivos</Eyebrow>
-        <h1 className="mt-1 text-2xl font-medium" style={{ color: 'var(--hub-text)' }}>Nova meta</h1>
-      </div>
+      <ModuleHeader eyebrow="Módulo · Metas" title="Nova meta" />
 
       <Card>
         <div className="space-y-6">
           {/* Título */}
           <div>
             <label style={labelStyle}>Título *</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Passar no concurso do CBMSC" className="w-full" autoFocus />
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex: Montar a reserva de emergência" className="w-full" autoFocus />
           </div>
 
           {/* Descrição */}
@@ -81,7 +70,7 @@ export function CreateGoalPage() {
           <div>
             <label style={labelStyle}>Categoria</label>
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
-              {CATEGORIES.map((c) => {
+              {GOAL_CATEGORIES.map((c) => {
                 const active = category === c.value;
                 return (
                   <button
@@ -89,11 +78,11 @@ export function CreateGoalPage() {
                     onClick={() => setCategory(c.value)}
                     className="flex flex-col items-center gap-1 py-3 text-xs font-medium transition-colors"
                     style={{
-                      borderRadius: '14px',
+                      borderRadius: 'var(--hub-radius-card)',
                       cursor: 'pointer',
-                      background: active ? 'rgba(193,99,61,0.12)' : 'transparent',
+                      background: active ? tint(hub.accent, 12) : 'transparent',
                       color: active ? 'var(--hub-primary-strong)' : 'var(--hub-muted)',
-                      border: `1px solid ${active ? 'rgba(193,99,61,0.30)' : 'var(--hub-border)'}`,
+                      border: `1px solid ${active ? tint(hub.accent, 30) : 'var(--hub-border)'}`,
                     }}
                   >
                     <span className="text-xl">{c.emoji}</span>
@@ -107,7 +96,7 @@ export function CreateGoalPage() {
           {/* Prazo */}
           <div>
             <label style={labelStyle}>Prazo (opcional)</label>
-            <input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="w-full" />
+            <DateInput className="w-full" value={targetDate} onChange={setTargetDate} ariaLabel="Prazo da meta" placeholder="Sem prazo" />
           </div>
 
           {/* Key Results */}
@@ -122,7 +111,7 @@ export function CreateGoalPage() {
               {keyResults.map((kr, idx) => (
                 <div key={idx} className="flex items-center gap-3">
                   <span className="shrink-0 text-xs tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{idx + 1}.</span>
-                  <input type="text" value={kr} onChange={(e) => updateKR(idx, e.target.value)} placeholder="Ex: Atingir 2800m no Cooper" className="w-full" />
+                  <input type="text" value={kr} onChange={(e) => updateKR(idx, e.target.value)} placeholder="Ex: Guardar R$ 500 por mês" className="w-full" />
                   {keyResults.length > 1 && (
                     <button onClick={() => removeKR(idx)} className="shrink-0 text-xs transition-opacity hover:opacity-70" style={{ color: 'var(--hub-negative)', background: 'none', border: 'none', cursor: 'pointer' }}>
                       ✕

@@ -9,7 +9,7 @@ export const aiTutorService = {
       ? `O aluno escolheu a alternativa ${chosenOption}.`
       : 'O aluno marcou "Não sei".';
 
-    const prompt = `Você é um tutor de concursos. Explique em 3-5 frases, em português, por que a resposta correta é a alternativa ${question.correctOption} e ${chosenOption ? `por que a alternativa ${chosenOption} está incorreta` : 'o que o aluno deveria ter pensado para chegar à resposta'}. Seja didático e direto.
+    const prompt = `Você é um tutor. Explique em 3-5 frases, em português, por que a resposta correta é a alternativa ${question.correctOption} e ${chosenOption ? `por que a alternativa ${chosenOption} está incorreta` : 'o que o aluno deveria ter pensado para chegar à resposta'}. Seja didático e direto.
 
 ${MATH_TEXT_RULES}
 

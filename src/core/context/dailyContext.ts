@@ -1,4 +1,5 @@
 import { storageAdapter } from '../storage/storage.adapter';
+import { localDayKey } from '../../shared/dates/localDay';
 
 const STORAGE_KEY = 'hub.context.daily';
 
@@ -62,7 +63,7 @@ type DailyContextPatch = {
 };
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 function emptyContext(): DailyContext {

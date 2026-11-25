@@ -125,7 +125,7 @@ function UrgencyItemRow({ accentColor, item, subjectName }: { accentColor: strin
       style={{ borderBottom: '1px solid var(--hub-border)' }}
     >
       <div className="min-w-0">
-        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
           {kindLabel} / {formatItemDate(item)}
         </span>
         <p className="mt-0.5 text-sm font-semibold" style={{ color: accentColor }}>{item.title}</p>

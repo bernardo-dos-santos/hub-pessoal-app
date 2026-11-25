@@ -359,3 +359,33 @@ export async function updateEvent(eventId, event, calendarId = PRIMARY_CALENDAR)
 export async function deleteEvent(eventId, calendarId = PRIMARY_CALENDAR) {
   await getCalendar().events.delete({ calendarId, eventId });
 }
+
+// ─── Firebase Cloud Messaging (push nativo do APK) ─────────────────────────────
+// Outra credencial, outra identidade: não é o token OAuth do dono (Gmail etc.),
+// é uma conta de serviço do projeto Firebase do Hub, que só sabe mandar push.
+// O arquivo é sensível (gitignored) e fica no servidor.
+
+export const FIREBASE_SERVICE_ACCOUNT_PATH = process.env.FIREBASE_SERVICE_ACCOUNT_FILE
+  ?? resolve(CONFIG_DIR, 'firebase-service-account.json');
+
+let fcmAuth = null;
+
+export function hasFirebaseCredentials() {
+  return existsSync(FIREBASE_SERVICE_ACCOUNT_PATH);
+}
+
+/** { projectId, accessToken } for the FCM HTTP v1 API. */
+export async function getFcmAccess() {
+  if (!hasFirebaseCredentials()) {
+    throw new Error(`Conta de serviço do Firebase ausente (${FIREBASE_SERVICE_ACCOUNT_PATH}).`);
+  }
+  if (!fcmAuth) {
+    fcmAuth = new google.auth.GoogleAuth({
+      keyFile: FIREBASE_SERVICE_ACCOUNT_PATH,
+      scopes: ['https://www.googleapis.com/auth/firebase.messaging'],
+    });
+  }
+  const { project_id: projectId } = JSON.parse(readFileSync(FIREBASE_SERVICE_ACCOUNT_PATH, 'utf-8'));
+  const accessToken = await fcmAuth.getAccessToken();
+  return { projectId, accessToken };
+}

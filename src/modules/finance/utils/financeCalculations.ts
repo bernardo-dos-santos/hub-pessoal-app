@@ -2,45 +2,42 @@ import { type Budget, type BudgetStatus, type BudgetsSummary, type BudgetUsage }
 import { type FinanceScope, type FinanceSummary } from '../types/finance';
 import { type Transaction } from '../types/transaction';
 import { specialCategories } from '../data/specialCategories';
-import { getCurrentMonthKey, isValidMonthKey } from './financePeriod';
-import { normalizeText } from './financeText';
+import { getCurrentMonthKey, getMonthStartDay, isValidMonthKey } from './financePeriod';
+import { financialMonthOf, isInFinancialMonth } from '../../../shared/finance/financeMonth.js';
+import {
+  isCategorySpendTransaction,
+  isMatchedReimbursement,
+  isRealExpense,
+  isRealIncome,
+  isReviewPlaceholderCategory,
+  isSafeExpenseRefund,
+  isSameCategory,
+  netExpenseSignedAmount,
+} from '../../../shared/finance/financeTotals.js';
+
+// What counts as income/spending is shared with the server (financeTotals.js).
+export { isMatchedReimbursement, isRealExpense, isRealIncome, isSafeExpenseRefund };
+
+/** Above this share of the limit a budget is "em atenção" — the screen and the alert agree. */
+export const BUDGET_ATTENTION_PERCENT = 80;
 
 export const incomeReviewCategory = specialCategories.incomeReview;
 export const expenseReviewCategory = specialCategories.expenseReview;
 export const internalTransferCategory = specialCategories.internalTransfer;
-const neutralResultCategories = [
-  specialCategories.internalTransfer,
-  specialCategories.cardPayment,
-  specialCategories.cardPaymentReceived,
-  // Aporte/resgate movem dinheiro entre caixa e patrimônio, não consomem nada.
-  specialCategories.investmentContribution,
-  specialCategories.investmentWithdrawal,
-];
-
 function absoluteAmount(value: number) {
   return Math.abs(Number(value) || 0);
 }
 
-function normalizeCategory(value: string) {
-  return normalizeText(value);
-}
-
 function isCategory(transaction: Pick<Transaction, 'category'>, category: string) {
-  return normalizeCategory(transaction.category) === normalizeCategory(category);
+  return isSameCategory(transaction.category, category);
 }
 
-function isNeutralResultCategory(transaction: Pick<Transaction, 'category'>) {
-  return neutralResultCategories.some((category) => isCategory(transaction, category));
-}
-
-export function isMatchedReimbursement(transaction: Pick<Transaction, 'reimbursementPairId' | 'reimbursementStatus'>) {
-  return Boolean(transaction.reimbursementPairId && transaction.reimbursementStatus === 'matched');
-}
-
+/**
+ * Every "transactions of a month" goes through here (or filterTransactionsBySelectedMonth):
+ * the month is the user's financial month (financeMonth.js), not the calendar one.
+ */
 export function filterTransactionsByMonth(transactions: Transaction[], year: number, month: number) {
-  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
-
-  return transactions.filter((transaction) => transaction.date.slice(0, 7) === monthKey);
+  return filterTransactionsBySelectedMonth(transactions, `${year}-${String(month).padStart(2, '0')}`);
 }
 
 export type MonthSelection = string | Date;
@@ -55,7 +52,13 @@ export function getMonthKey(selectedMonth: MonthSelection = new Date()) {
 
 export function filterTransactionsBySelectedMonth(transactions: Transaction[], selectedMonth?: MonthSelection) {
   const monthKey = getMonthKey(selectedMonth);
-  return transactions.filter((transaction) => transaction.date.slice(0, 7) === monthKey);
+  const startDay = getMonthStartDay();
+  return transactions.filter((transaction) => isInFinancialMonth(transaction.date, monthKey, startDay));
+}
+
+/** The financial month (`YYYY-MM`) a transaction belongs to. */
+export function transactionMonthKey(transaction: Pick<Transaction, 'date'>) {
+  return financialMonthOf(transaction.date, getMonthStartDay());
 }
 
 export function filterTransactionsByScope(transactions: Transaction[], scope: FinanceScope) {
@@ -74,24 +77,6 @@ export function filterTransactionsByCategory(transactions: Transaction[], catego
   return transactions.filter((transaction) => isCategory(transaction, category));
 }
 
-export function isRealIncome(transaction: Transaction) {
-  return (
-    !isMatchedReimbursement(transaction) &&
-    transaction.kind === 'income' &&
-    !isCategory(transaction, incomeReviewCategory) &&
-    !isNeutralResultCategory(transaction)
-  );
-}
-
-export function isRealExpense(transaction: Transaction) {
-  return (
-    !isMatchedReimbursement(transaction) &&
-    transaction.amount < 0 &&
-    !isNeutralResultCategory(transaction) &&
-    (transaction.kind === 'expense' || transaction.kind === 'card_purchase')
-  );
-}
-
 export function isInternalTransfer(transaction: Transaction) {
   return transaction.kind === 'transfer' || isCategory(transaction, internalTransferCategory);
 }
@@ -102,20 +87,6 @@ export function calculateRealIncome(transactions: Transaction[]) {
 
 export function calculateGrossRealExpenses(transactions: Transaction[]) {
   return transactions.filter(isRealExpense).reduce((total, transaction) => total + absoluteAmount(transaction.amount), 0);
-}
-
-function isCategoryReviewPending(transaction: Pick<Transaction, 'category'>) {
-  return isCategory(transaction, incomeReviewCategory) || isCategory(transaction, expenseReviewCategory);
-}
-
-export function isSafeExpenseRefund(transaction: Transaction) {
-  return (
-    transaction.kind === 'refund' &&
-    transaction.amount > 0 &&
-    !isMatchedReimbursement(transaction) &&
-    !isNeutralResultCategory(transaction) &&
-    !isCategoryReviewPending(transaction)
-  );
 }
 
 export function calculateRefundAdjustments(transactions: Transaction[]) {
@@ -189,12 +160,8 @@ export function calculateExpensesByCategory(transactions: Transaction[]) {
   }, {});
 }
 
-function isDashboardCategorySpend(transaction: Transaction) {
-  return isRealExpense(transaction) && !isCategoryReviewPending(transaction);
-}
-
 function isNetExpenseCategoryTransaction(transaction: Transaction) {
-  return isDashboardCategorySpend(transaction) || isSafeExpenseRefund(transaction);
+  return isCategorySpendTransaction(transaction);
 }
 
 export function getNetExpenseCategoryTransactions(transactions: Transaction[], category: string, selectedMonth?: MonthSelection) {
@@ -206,7 +173,7 @@ export function getNetExpenseCategoryTransactions(transactions: Transaction[], c
 }
 
 export function getNetExpenseSignedAmount(transaction: Transaction) {
-  return isSafeExpenseRefund(transaction) ? -absoluteAmount(transaction.amount) : absoluteAmount(transaction.amount);
+  return netExpenseSignedAmount(transaction);
 }
 
 export type CategoryExpenseSummary = {
@@ -270,7 +237,7 @@ function isBudgetRefundTransaction(transaction: Transaction) {
 }
 
 function budgetSignedAmount(transaction: Transaction) {
-  return isBudgetRefundTransaction(transaction) ? -absoluteAmount(transaction.amount) : absoluteAmount(transaction.amount);
+  return netExpenseSignedAmount(transaction);
 }
 
 export type BudgetMonthSelection = MonthSelection;
@@ -280,7 +247,10 @@ function filterBudgetMonth(transactions: Transaction[], selectedMonth?: BudgetMo
     return filterTransactionsBySelectedMonth(transactions, selectedMonth);
   }
 
-  const fallbackMonth = transactions[0]?.date.slice(0, 7);
+  // No month given = the month of the first transaction in the list. Only for
+  // callers that pass one month's list; screens and the daily context always
+  // pass the month (a fresh import puts an old month first).
+  const fallbackMonth = transactions[0] ? transactionMonthKey(transactions[0]) : undefined;
   return fallbackMonth ? filterTransactionsBySelectedMonth(transactions, fallbackMonth) : transactions;
 }
 
@@ -300,7 +270,7 @@ export function calculateBudgetUsage(budget: Budget, transactions: Transaction[]
   const spent = trackedTransactions.reduce((total, transaction) => total + budgetSignedAmount(transaction), 0);
   const limit = budgetLimit(budget);
   const percentUsed = limit > 0 ? (spent / limit) * 100 : 0;
-  const status = percentUsed > 100 ? 'exceeded' : percentUsed > 70 ? 'attention' : 'ok';
+  const status = percentUsed > 100 ? 'exceeded' : percentUsed > BUDGET_ATTENTION_PERCENT ? 'attention' : 'ok';
 
   return {
     budgetId: budget.id,
@@ -323,7 +293,8 @@ export function calculateBudgetsSummary(budgets: Budget[], transactions: Transac
     exceeded: usages.filter((usage) => usage.status === 'exceeded').length,
     totalLimit: activeBudgets.reduce((total, budget) => total + budgetLimit(budget), 0),
     totalSpent: usages.reduce((total, usage) => total + usage.spent, 0),
-    totalRemaining: usages.reduce((total, usage) => total + usage.remaining, 0),
+    // An exceeded budget doesn't eat the room left in the others.
+    totalRemaining: usages.reduce((total, usage) => total + Math.max(0, usage.remaining), 0),
   };
 }
 
@@ -333,10 +304,10 @@ export function calculateFinanceSummary(transactions: Transaction[]): FinanceSum
   const grossExpenses = calculateGrossRealExpenses(calculatedTransactions);
   const refundAdjustments = calculateRefundAdjustments(calculatedTransactions);
   const netExpenses = grossExpenses - refundAdjustments;
-  const cardPurchasesTotal = calculateCardPurchases(calculatedTransactions);
-  const cardPaymentsTotal = calculateCardPayments(calculatedTransactions);
-  // cash-only expenses: excludes card_purchase (credit pool), includes only expense kind
-  const cashExpenses = netExpenses - cardPurchasesTotal;
+  // One rule for the month (2026-11): a card purchase is spending on the day it
+  // happens, and paying the bill only moves money that was already counted.
+  // The old "two pools" (cash spending − bill payments) left the card out of the
+  // month until the bill was paid, so the dashboard and the budgets disagreed.
 
   return {
     income,
@@ -344,8 +315,7 @@ export function calculateFinanceSummary(transactions: Transaction[]): FinanceSum
     refundAdjustments,
     netExpenses,
     expenses: netExpenses,
-    cashExpenses,
-    balance: income - cashExpenses - cardPaymentsTotal,
+    balance: income - netExpenses,
     pendingIncomeReview: calculatePendingIncomeReview(calculatedTransactions),
     pendingExpenseReview: calculatePendingExpenseReview(calculatedTransactions),
     cardPurchases: calculateCardPurchases(calculatedTransactions),

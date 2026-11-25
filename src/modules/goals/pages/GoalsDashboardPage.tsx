@@ -1,128 +1,82 @@
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { ModuleAttentionCard } from '../../../core/alerts/ModuleAttentionCard';
+import { Button, Card, ModuleHeader } from '../../../shared/ui';
+import { goalAlertProvider } from '../alerts/goalAlertProvider';
+import { GoalRow } from '../components/GoalRow';
+import { getGoalsTabs } from '../components/goalsTabs';
 import { goalService } from '../services/goalService';
-import { type Goal, type GoalCategory } from '../types/goal';
-import { Card, ProgressBar, BackButton, Eyebrow } from '../../../shared/ui';
 
-const CATEGORY_LABEL: Record<GoalCategory, string> = {
-  concurso: 'Concurso', financeiro: 'Financeiro', saude: 'Saúde',
-  pessoal: 'Pessoal', faculdade: 'Faculdade',
-};
+const sectionLabel = { fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' } as const;
 
-const CATEGORY_COLOR: Record<GoalCategory, string> = {
-  concurso:   'var(--hub-negative)',
-  financeiro: 'var(--hub-positive)',
-  saude:      'var(--hub-accent)',
-  pessoal:    'var(--hub-mauve)',
-  faculdade:  'var(--hub-warning)',
-};
-
-function GoalCard({ goal, last }: { goal: Goal; last: boolean }) {
-  const progress = goalService.getProgress(goal);
-  const color = CATEGORY_COLOR[goal.category];
-  const doneKRs = goal.keyResults.filter((kr) => kr.status === 'done').length;
-
-  return (
-    <Link
-      to={`/metas/${goal.id}`}
-      className="block transition-opacity hover:opacity-80"
-      style={{ padding: '14px 0', borderBottom: last ? 'none' : '1px solid var(--hub-border)' }}
-    >
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <p className="font-medium leading-snug" style={{ color: 'var(--hub-text)' }}>{goal.title}</p>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
-          <span className="text-[10px] font-medium" style={{ color }}>{CATEGORY_LABEL[goal.category]}</span>
-        </div>
-      </div>
-      {goal.description && (
-        <p className="mb-3 line-clamp-2 text-xs" style={{ color: 'var(--hub-muted)' }}>
-          {goal.description}
-        </p>
-      )}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-xs tabular-nums">
-          <span style={{ color: 'var(--hub-muted)' }}>
-            {doneKRs}/{goal.keyResults.length} key results
-          </span>
-          <span style={{ color: progress === 100 ? 'var(--hub-positive)' : 'var(--hub-primary)' }}>
-            {progress}%
-          </span>
-        </div>
-        <ProgressBar value={progress} percent signal={progress === 100 ? 'positive' : 'accent'} />
-      </div>
-      {goal.targetDate && (
-        <p className="mt-2 text-[10px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>
-          Prazo: {new Date(goal.targetDate).toLocaleDateString('pt-BR')}
-        </p>
-      )}
-    </Link>
-  );
-}
-
+/**
+ * Resumo das Metas no formato dos módulos: o hero
+ * responde "como estão as minhas metas?" — o progresso médio das ativas e a
+ * próxima a vencer —, com "Nova meta"; ao lado o "Precisa de você" do
+ * goalAlertProvider; embaixo as ativas, das que vencem antes para as sem prazo.
+ */
 export function GoalsDashboardPage() {
+  const navigate = useNavigate();
   const all = goalService.listGoals();
-  const active = all.filter((g) => g.status === 'active');
-  const completed = all.filter((g) => g.status === 'completed');
+  const active = all
+    .filter((g) => g.status === 'active')
+    .sort((a, b) => (goalService.daysUntilTarget(a) ?? Infinity) - (goalService.daysUntilTarget(b) ?? Infinity));
+  const closed = all.length - active.length;
+
+  const average = active.length > 0
+    ? Math.round(active.reduce((sum, g) => sum + goalService.getProgress(g), 0) / active.length)
+    : null;
+  const next = active.find((g) => {
+    const days = goalService.daysUntilTarget(g);
+    return days !== null && days >= 0;
+  });
+  const nextDays = next ? goalService.daysUntilTarget(next) : null;
+
+  let sentence: string;
+  if (active.length === 0) {
+    sentence = closed > 0
+      ? 'Nenhuma meta ativa — as antigas estão em Encerradas.'
+      : 'Nenhuma meta ainda. Uma meta aqui é um objetivo com key results: passos que dá para marcar como feitos.';
+  } else {
+    sentence = `${active.length} ${active.length === 1 ? 'meta ativa' : 'metas ativas'}. `;
+    sentence += next && nextDays !== null
+      ? `A próxima a vencer é "${next.title}", ${nextDays === 0 ? 'hoje' : `em ${nextDays} ${nextDays === 1 ? 'dia' : 'dias'}`}, com ${goalService.getProgress(next)}% feito.`
+      : 'Nenhuma com prazo pela frente.';
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <div className="mb-2"><BackButton /></div>
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <Eyebrow>Módulo · Objetivos</Eyebrow>
-            <h1 className="mt-1 text-2xl font-medium" style={{ color: 'var(--hub-text)' }}>Metas</h1>
-            <p className="mt-1 text-sm" style={{ color: 'var(--hub-muted)' }}>
-              {active.length} ativa{active.length !== 1 ? 's' : ''} · {completed.length} concluída{completed.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-          <Link
-            to="/metas/nova"
-            className="text-sm font-semibold transition-opacity hover:opacity-70"
-            style={{ color: 'var(--hub-primary)' }}
-          >
-            + Nova meta
-          </Link>
+    <div>
+      <ModuleHeader eyebrow="Módulo · Metas" title="Resumo" tabs={getGoalsTabs()} />
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
+          <Card hero>
+            <p className="font-medium uppercase" style={sectionLabel}>Progresso das ativas</p>
+            <div className="mt-3 flex items-baseline gap-3">
+              <span className="tabular-nums" style={{ fontSize: '58px', lineHeight: 1, fontWeight: 400, letterSpacing: '-0.02em', color: average === 100 ? 'var(--hub-positive)' : 'var(--hub-text)' }}>
+                {average === null ? '—' : `${average}%`}
+              </span>
+              {average !== null && <span className="text-sm" style={{ color: 'var(--hub-muted)' }}>em média</span>}
+            </div>
+            <p className="mt-3 text-sm leading-6" style={{ color: 'var(--hub-text-body)' }}>{sentence}</p>
+            <div className="mt-5">
+              <Button type="button" onClick={() => navigate('/metas/nova')}>Nova meta</Button>
+            </div>
+          </Card>
+
+          <ModuleAttentionCard provider={goalAlertProvider} className="lg:hidden" />
+
+          {active.length > 0 && (
+            <Card>
+              <p className="font-medium uppercase" style={{ ...sectionLabel, marginBottom: '2px' }}>Ativas</p>
+              {active.map((g, i) => <GoalRow key={g.id} goal={g} last={i === active.length - 1} />)}
+            </Card>
+          )}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <ModuleAttentionCard provider={goalAlertProvider} className="hidden lg:block" />
         </div>
       </div>
-
-      {active.length === 0 && completed.length === 0 ? (
-        <Card className="text-center">
-          <div className="py-8">
-            <p className="text-3xl">🎯</p>
-            <p className="mt-3 font-medium" style={{ color: 'var(--hub-text)' }}>Nenhuma meta ainda</p>
-            <p className="mt-1 text-sm" style={{ color: 'var(--hub-muted)' }}>
-              Crie sua primeira meta para começar a acompanhar seu progresso.
-            </p>
-            <Link
-              to="/metas/nova"
-              className="mt-4 inline-block text-sm font-semibold transition-opacity hover:opacity-70"
-              style={{ color: 'var(--hub-primary)' }}
-            >
-              Criar meta →
-            </Link>
-          </div>
-        </Card>
-      ) : (
-        <>
-          {active.length > 0 && (
-            <section>
-              <Eyebrow style={{ marginBottom: '8px' }}>Ativas</Eyebrow>
-              <Card>
-                {active.map((g, i) => <GoalCard key={g.id} goal={g} last={i === active.length - 1} />)}
-              </Card>
-            </section>
-          )}
-          {completed.length > 0 && (
-            <section>
-              <Eyebrow style={{ marginBottom: '8px' }}>Concluídas</Eyebrow>
-              <Card>
-                {completed.map((g, i) => <GoalCard key={g.id} goal={g} last={i === completed.length - 1} />)}
-              </Card>
-            </section>
-          )}
-        </>
-      )}
     </div>
   );
 }

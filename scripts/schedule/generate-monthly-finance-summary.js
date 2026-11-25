@@ -11,21 +11,14 @@
  * Não precisa de chave: quem escolhe o provedor e a credencial é o servidor,
  * pela cadeia de slots configurada em Configurações → IA.
  *
- * Task Scheduler (PowerShell como admin):
- *   $action = New-ScheduledTaskAction -Execute "node" `
- *     -Argument '"C:\Users\Bernardo\Documents\Finance App\scripts\schedule\generate-monthly-finance-summary.js"' `
- *     -WorkingDirectory "C:\Users\Bernardo\Documents\Finance App"
- *   $trigger = New-ScheduledTaskTrigger -Monthly -DaysOfMonth 6 -At "00:30"
- *   Register-ScheduledTask -TaskName "HubPessoal-MonthlySummary" -Action $action -Trigger $trigger -RunLevel Highest
+ * Agendado por scripts/schedule/setup-all-tasks.ps1.
  */
 
 import { createLogger } from '../lib/logger.js';
+import { HUB_URL, waitForHub } from '../lib/hubApi.js';
 
 const log = createLogger('generate-monthly-finance-summary');
 
-// 127.0.0.1, não "localhost" — ver generate-briefing.js: o servidor só
-// escuta em IPv4 (0.0.0.0) e "localhost" pode resolver IPv6 primeiro.
-const HUB_URL = process.env.HUB_BACKEND ?? 'http://127.0.0.1:3001';
 const MONTH   = process.argv[2] ?? null; // opcional: YYYY-MM
 
 async function main() {
@@ -33,6 +26,7 @@ async function main() {
   log.info(`Gerando resumo financeiro de ${label}...`);
 
   try {
+    await waitForHub({ log });
     const res = await fetch(`${HUB_URL}/api/finance/monthly-summary/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

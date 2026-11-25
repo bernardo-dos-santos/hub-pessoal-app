@@ -418,7 +418,7 @@ export async function executeGoogleWrite(name, args) {
 export async function executeGoogleTool(name, args) {
   if (GOOGLE_WRITE_TOOL_NAMES.has(name)) {
     if (!googleWriteAllowed()) {
-      return { ok: false, error: 'Escrita no Google desligada na configuração do Jarvis (Capacidades → Escrever nas contas Google).' };
+      return { ok: false, error: 'Escrita no Google desligada na configuração da Íris (Capacidades → Escrever nas contas Google).' };
     }
     if (!hasGoogleAuth()) {
       return { ok: false, error: 'Conta Google ainda não autorizada no servidor. Rode: node scripts/sync/authorize-google.js' };
@@ -432,7 +432,7 @@ export async function executeGoogleTool(name, args) {
   if (!GOOGLE_TOOL_NAMES.has(name)) return undefined;
 
   if (!googleReadAllowed()) {
-    return { ok: false, error: 'Acesso ao Google desligado na configuração do Jarvis (Capacidades → Ler Gmail, Agenda e Drive).' };
+    return { ok: false, error: 'Acesso ao Google desligado na configuração da Íris (Capacidades → Ler Gmail, Agenda e Drive).' };
   }
   if (!hasGoogleAuth()) {
     return { ok: false, error: 'Conta Google ainda não autorizada no servidor. Rode: node scripts/sync/authorize-google.js' };

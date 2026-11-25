@@ -1,6 +1,7 @@
 import { generateId } from '../../../shared/utils/generateId';
 import { isMilestoneOverdue, type ProjectMilestone } from '../types/projectMilestone';
 import { readMilestones, recordEvent, touch, writeMilestones } from './projectStorage';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 type CreateMilestoneInput = {
   projectId: string;
@@ -11,7 +12,7 @@ type CreateMilestoneInput = {
 
 /** Data de hoje em YYYY-MM-DD, para comparar com `targetDate` sem fuso no meio. */
 export function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 export const projectMilestoneService = {

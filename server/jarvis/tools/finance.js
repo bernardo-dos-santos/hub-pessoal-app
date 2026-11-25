@@ -4,7 +4,42 @@
  */
 
 import { kvStore } from '../../db.js';
-import { kv, todayStr, matchesCategory } from '../context.js';
+import { kv, todayStr, matchesCategory, financeMonthStartDay } from '../context.js';
+import { currentFinancialMonth, isInFinancialMonth } from '../../../src/shared/finance/financeMonth.js';
+import { calculatePosition } from '../../../src/shared/finance/investmentPosition.js';
+import {
+  SPECIAL_CATEGORIES,
+  budgetLimitOf,
+  budgetSpent,
+  isSameCategory,
+  summarizeTotals,
+} from '../../../src/shared/finance/financeTotals.js';
+
+/** A positive, finite amount from a tool argument — or null. */
+function positiveAmount(value) {
+  const n = Math.abs(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * The category as the app spells it. A free-text "alimentação" never matched
+ * "Alimentação fora", so the Íris's entries fell out of every budget; an unknown
+ * one goes to the review queue instead of inventing a category.
+ */
+function resolveCategory(requested, isExpense) {
+  const known = new Set();
+  for (const t of kv('finance.transactions') ?? []) if (t.category) known.add(t.category);
+  for (const c of kv('finance.customCategories') ?? []) if (c?.name) known.add(c.name);
+  for (const b of kv('finance.budgets') ?? []) if (b?.category) known.add(b.category);
+  const wanted = String(requested ?? '').trim();
+  if (wanted) {
+    const exact = [...known].find((c) => isSameCategory(c, wanted));
+    if (exact) return { category: exact, needsReview: false };
+    const partial = [...known].filter((c) => isSameCategory(c, wanted) || c.toLowerCase().includes(wanted.toLowerCase()));
+    if (partial.length === 1) return { category: partial[0], needsReview: false };
+  }
+  return { category: isExpense ? SPECIAL_CATEGORIES.expenseReview : SPECIAL_CATEGORIES.incomeReview, needsReview: true };
+}
 
 export const financeTools = [
   {
@@ -74,24 +109,43 @@ export const financeTools = [
 export async function executeFinanceTool(name, args) {
   switch (name) {
     case 'add_finance_transaction': {
+      const amount = positiveAmount(args.amount);
+      if (!amount) return { ok: false, error: 'Valor inválido — preciso de um número maior que zero.' };
       const transactions = kv('finance.transactions') ?? [];
       const isExpense = args.kind === 'expense' || args.kind === 'card_purchase';
+      const { category, needsReview } = resolveCategory(args.category, isExpense);
+      const now = new Date().toISOString();
+      // Same shape as a transaction the app creates: without scope the budgets
+      // (personal scope) ignored it while the dashboard counted it.
       const newTx = {
         id: `jarvis-${Date.now()}`,
         description: args.description,
-        amount: isExpense ? -Math.abs(args.amount) : Math.abs(args.amount),
+        amount: isExpense ? -amount : amount,
         kind: args.kind,
-        category: args.category ?? 'outros',
+        category,
         date: todayStr(),
-        source: 'jarvis',
-        needsReview: false,
+        scope: 'pessoal',
+        accountType: args.kind === 'card_purchase' ? 'credit_card' : 'checking',
+        method: args.kind === 'card_purchase' ? 'credito' : 'pix',
+        source: 'manual',
+        manualCategory: !needsReview,
+        needsReview,
+        classificationConfidence: needsReview ? 'low' : 'high',
+        classificationReason: 'Registrada pela Íris',
+        notes: 'Registrada pela Íris',
+        createdAt: now,
+        updatedAt: now,
       };
       transactions.unshift(newTx);
       kvStore.set('finance.transactions', JSON.stringify(transactions));
-      return { ok: true, message: `Transação "${args.description}" de R$${args.amount.toFixed(2)} registrada.`, affectedKey: 'finance.transactions' };
+      const where = needsReview ? ' Categoria não reconhecida — ficou em Revisar.' : ` Categoria: ${category}.`;
+      return { ok: true, message: `Transação "${args.description}" de R${amount.toFixed(2)} registrada.${where}`, affectedKey: 'finance.transactions' };
     }
 
     case 'add_investment_contribution': {
+      const contributionAmount = positiveAmount(args.amount);
+      if (!contributionAmount) return { ok: false, error: 'Valor do aporte inválido — preciso de um número maior que zero.' };
+      if (args.date && !/^\d{4}-\d{2}-\d{2}$/.test(args.date)) return { ok: false, error: 'Data inválida — use AAAA-MM-DD.' };
       const investments = kv('finance.investments') ?? [];
       const needle = String(args.investment_name ?? '').trim().toLowerCase();
       if (!needle) return { ok: false, error: 'Nome do investimento vazio.' };
@@ -127,28 +181,15 @@ export async function executeFinanceTool(name, args) {
         investmentId: investment.id,
         type: 'contribution',
         date,
-        amount: Math.abs(args.amount),
-        note: 'Registrado via Jarvis',
+        amount: contributionAmount,
+        note: 'Registrado via Íris',
         source: 'manual',
         createdAt: new Date().toISOString(),
       });
       kvStore.set('finance.investments.movements', JSON.stringify(movements));
 
-      // Recalcula o cache do investimento a partir do histórico — mesma regra de
-      // calculatePosition em investmentMovementService.ts. DUPLICADO aqui porque
-      // o servidor é JS puro e não importa TS do frontend: se a regra de posição
-      // mudar lá, replique aqui também.
-      const ownMovements = movements
-        .filter((m) => m.investmentId === investment.id)
-        .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
-      let totalInvested = 0;
-      let lastValuation = null;
-      for (const m of ownMovements) {
-        if (m.type === 'contribution') totalInvested += Math.abs(m.amount) * (m.exchangeRate ?? 1);
-        else if (m.type === 'withdrawal') totalInvested -= Math.abs(m.amount) * (m.exchangeRate ?? 1);
-        else lastValuation = m;
-      }
-      const currentValue = lastValuation ? Math.abs(lastValuation.amount) * (lastValuation.exchangeRate ?? 1) : totalInvested;
+      // Same rule as the app (shared module), so the cached value can't disagree.
+      const { totalInvested, currentValue } = calculatePosition(movements.filter((m) => m.investmentId === investment.id));
 
       const idx = investments.findIndex((i) => i.id === investment.id);
       investments[idx] = { ...investment, totalInvested, currentValue, updatedAt: new Date().toISOString() };
@@ -156,45 +197,50 @@ export async function executeFinanceTool(name, args) {
 
       return {
         ok: true,
-        message: `Aporte de R$${args.amount.toFixed(2)} registrado em "${investment.name}".`,
+        message: `Aporte de R${contributionAmount.toFixed(2)} registrado em "${investment.name}".`,
         affectedKey: 'finance.investments',
         extraAffectedKeys: ['finance.investments.movements'],
       };
     }
 
     case 'list_transactions': {
-      const month = args.month ?? new Date().toISOString().slice(0, 7);
-      let txs = (kv('finance.transactions') ?? []).filter((t) => t.date?.startsWith(month));
+      const startDay = financeMonthStartDay();
+      const month = args.month ?? currentFinancialMonth(startDay);
+      let txs = (kv('finance.transactions') ?? []).filter((t) => isInFinancialMonth(t.date, month, startDay));
       if (args.category) {
         const cat = args.category.toLowerCase();
         txs = txs.filter((t) => (t.category ?? '').toLowerCase().includes(cat));
       }
-      const total = txs.reduce((s, t) => s + (t.amount ?? 0), 0);
+      // Summing every sign counted the card twice (purchases + the bill payment)
+      // and transfers as spending; report the app's totals instead.
+      const totals = summarizeTotals(txs);
       const list = txs.slice(0, args.limit ?? 15).map((t) => ({
         date: t.date, description: t.description, amount: t.amount, kind: t.kind, category: t.category,
       }));
-      return { ok: true, month, matched: txs.length, totalAmount: Number(total.toFixed(2)), transactions: list };
+      return {
+        ok: true, month, matched: txs.length,
+        spent: Number(totals.expenses.toFixed(2)),
+        received: Number(totals.income.toFixed(2)),
+        transactions: list,
+      };
     }
 
     case 'get_budget_status': {
       const budgets = (kv('finance.budgets') ?? []).filter((b) => b.isActive !== false);
       if (budgets.length === 0) return { ok: true, budgets: [], message: 'Nenhum orçamento ativo cadastrado.' };
 
-      const month = todayStr().slice(0, 7);
-      const monthTxs = (kv('finance.transactions') ?? [])
-        .filter((t) => t.date?.startsWith(month) && t.kind !== 'income');
+      const startDay = financeMonthStartDay();
+      const month = currentFinancialMonth(startDay);
+      const monthTxs = (kv('finance.transactions') ?? []).filter((t) => isInFinancialMonth(t.date, month, startDay));
 
       const result = budgets
         .filter((b) => !args.category || matchesCategory(b, args.category))
         .map((b) => {
-          // Um orçamento pode cobrir várias categorias (campo `categories`) ou uma só.
-          const cats = (b.categories?.length ? b.categories : [b.category])
-            .filter(Boolean)
-            .map((c) => c.toLowerCase());
-          const spent = monthTxs
-            .filter((t) => cats.includes((t.category ?? '').toLowerCase()))
-            .reduce((sum, t) => sum + Math.abs(t.amount ?? 0), 0);
-          const limit = b.limit ?? b.amount ?? 0;
+          // Same rule as the app's budgets: net of refunds, matched reimbursements
+          // and neutral movements left out (financeTotals.js).
+          const cats = (b.categories?.length ? b.categories : [b.category]).filter(Boolean);
+          const spent = cats.reduce((sum, category) => sum + budgetSpent({ ...b, category }, monthTxs), 0);
+          const limit = budgetLimitOf(b);
           return {
             name: b.name,
             categories: cats,
@@ -214,7 +260,7 @@ export async function executeFinanceTool(name, args) {
       const needle = args.description_contains.toLowerCase();
       const matches = transactions.filter((t) =>
         (t.description ?? '').toLowerCase().includes(needle)
-        && (!args.month || t.date?.startsWith(args.month)),
+        && (!args.month || isInFinancialMonth(t.date, args.month, financeMonthStartDay())),
       );
       const preview = matches.slice(0, 5).map((t) => ({ date: t.date, description: t.description, amount: t.amount }));
       if (args.dry_run !== false) {

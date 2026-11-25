@@ -164,7 +164,7 @@ export async function runAgent({ model, systemBlocks, messages, tools, maxIters,
       // Camada 3 da trava de gasto: a API recusando por saldo. É a única que
       // não depende de nenhuma estimativa nossa estar certa.
       if (err instanceof Anthropic.APIError && err.status === 402) {
-        throw new Error('Sem saldo na conta da Anthropic. Recarregue os créditos e atualize o saldo nas configurações do Jarvis.');
+        throw new Error('Sem saldo na conta da Anthropic. Recarregue os créditos e atualize o saldo nas configurações da Íris.');
       }
       throw err;
     }
@@ -236,7 +236,7 @@ export async function runAgent({ model, systemBlocks, messages, tools, maxIters,
       // Senhor lê meia resposta achando que é a resposta.
       const truncada = response.stop_reason === 'max_tokens';
       return {
-        text: truncada ? `${text}\n\n(Resposta cortada no limite de tamanho, Senhor — peça a continuação se faltou algo.)` : text,
+        text: truncada ? `${text}\n\n(Resposta cortada no limite de tamanho — peça a continuação se faltou algo.)` : text,
         affectedKeys: [...affectedKeys],
       };
     }

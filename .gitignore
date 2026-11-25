@@ -1,9 +1,8 @@
 node_modules/
 dist/
-hub.db
-hub.db-journal
-hub.db-wal
-hub.db-shm
+# o banco e tudo que nasce ao lado dele: journal/wal/shm e as cópias de
+# segurança (hub.db.pre-multiuser-*, hub.db.backup-*) — todas com dado pessoal
+hub.db*
 uploads/
 jarvis-memory/
 .env
@@ -14,7 +13,7 @@ legacy/finance-mvp/*.log
 scripts/config/sigaa-config.json
 scripts/config/credentials.json
 scripts/config/token.json
-scripts/config/edital-state.json
+scripts/config/firebase-service-account.json
 scripts/config/nubank-invoice-state.json
 scripts/config/nubank-sync-state.json
 scripts/config/bank-sync-state.json
@@ -22,13 +21,9 @@ scripts/config/c6-sync-state.json
 screenshot-app.png
 sigaa-export.json
 sigaa-*.png
-public/sigaa-pending.json
-public/nubank-pending.json
-public/c6-pending.json
-public/notif-pending.json
-public/bank-pending.json
-public/nubank-invoice-pending.json
-public/pluggy-pending.json
+/data/
+# antigo destino dos syncs (antes de data/pending/) — ainda pode existir em disco
+public/*-pending.json
 public/briefing-today.json
 
 # Android (Capacitor) — build artifacts only; source is tracked
@@ -36,6 +31,8 @@ android/.gradle/
 android/app/build/
 android/build/
 android/.idea/
+# Firebase config of the Hub's own project — goes into the APK, kept out of git
+android/app/google-services.json
 *.iml
 *.ipr
 *.iws

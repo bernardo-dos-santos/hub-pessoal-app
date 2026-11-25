@@ -1,6 +1,5 @@
 import { aiClient } from '../../../core/ai/aiClient';
 import { MATH_JSON_RULES } from '../../../core/ai/formatInstructions';
-import { getSubTopics } from '../data/subTopicTaxonomy';
 import {
   type ExamStyle,
   type Question,
@@ -45,12 +44,7 @@ function buildPrompt(input: GenerateQuestionsInput): string {
     '- Inclua uma explicação curta do porquê a correta está certa.',
     `- ${difficultyLine}`,
     '- Use apenas informação derivável do conteúdo fornecido.',
-    (() => {
-      const subTopics = getSubTopics(input.subjectTag);
-      return subTopics
-        ? `- Marque de 1 a 3 tags de tópico por questão. Use APENAS tags desta lista canônica: [${subTopics.join(', ')}].`
-        : '- Marque de 1 a 3 tags de tópico por questão (sub-tópicos específicos do conteúdo).';
-    })(),
+    '- Marque de 1 a 3 tags de tópico por questão (sub-tópicos específicos do conteúdo).',
     '',
     MATH_JSON_RULES,
     '',

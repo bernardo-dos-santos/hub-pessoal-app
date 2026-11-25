@@ -1,7 +1,6 @@
 import { aiClient } from '../../../core/ai/aiClient';
 import { PLAIN_TEXT_RULES } from '../../../core/ai/formatInstructions';
 import { type Workout } from '../types/workout';
-import { type TafTestResult } from './tafService';
 
 export type WorkoutFeedback = {
   message: string;
@@ -43,26 +42,19 @@ export const aiWorkoutFeedbackService = {
   async getFeedback(
     current: Workout,
     previous: Workout | null,
-    tafResult: TafTestResult | null,
   ): Promise<WorkoutFeedback> {
     const trend = detectTrend(current, previous);
     const currentSummary = formatWorkoutSummary(current);
     const previousSummary = previous ? formatWorkoutSummary(previous) : null;
 
-    const tafContext = tafResult
-      ? `Meta mínima TAF para ${tafResult.requirement.testName}: ${tafResult.requirement.minimumValue} ${tafResult.requirement.unit}. Melhor resultado atual: ${tafResult.bestValue ?? 'nenhum'} ${tafResult.requirement.unit}. Status: ${tafResult.status ?? 'sem dados'}.`
-      : 'Sem dados TAF disponíveis para este exercício.';
-
-    const prompt = `Você é um coach esportivo do concurso Bombeiro Militar SC (CBMSC). Acabei de registrar um treino e quero um feedback breve e motivador.
+    const prompt = `Você é um coach esportivo. Acabei de registrar um treino e quero um feedback breve e motivador.
 
 Treino atual: ${currentSummary}
 ${previousSummary ? `Treino anterior (mesmo tipo): ${previousSummary}` : 'Primeiro treino deste tipo registrado.'}
-${tafContext}
 
 Gere um feedback curto (2-3 frases) em português que:
 1. Comente a sessão em relação ao anterior (se houver)
-2. Mencione a distância para a meta TAF (se houver gap)
-3. Encerre com motivação específica ao concurso
+2. Encerre com uma motivação concreta para o próximo treino
 
 ${PLAIN_TEXT_RULES}
 
@@ -74,7 +66,7 @@ Responda APENAS com JSON: { "message": "texto do feedback aqui" }`;
     } catch {
       const fallbackMessages: Record<WorkoutFeedback['trend'], string> = {
         first: 'Primeiro passo dado! Continue registrando para acompanhar sua evolução.',
-        improving: 'Evolução detectada! Continue assim rumo ao CBMSC.',
+        improving: 'Evolução detectada! Continue assim.',
         steady: 'Consistência é fundamental. Mantenha o ritmo!',
         declining: 'Dia difícil? Recuperação faz parte do processo. Volte mais forte.',
       };

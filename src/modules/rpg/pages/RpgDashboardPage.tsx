@@ -13,7 +13,8 @@ type CharacterDraft = {
   campaign: string;
 };
 
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
+// Layout only — the base layer in global.css already styles bare inputs.
+const inputClass = 'w-full text-sm';
 
 function emptyDraft(): CharacterDraft {
   return { name: '', subtitle: '', masterName: '', campaign: '' };
@@ -62,7 +63,7 @@ export const RpgDashboardPage: React.FC = () => {
 
   return (
     <div>
-      <ModuleHeader eyebrow="Módulo · Ficha automática" title="RPG" tabs={getRpgTabs()} />
+      <ModuleHeader eyebrow="Módulo · RPG" title="Personagens" tabs={getRpgTabs()} />
 
       {message ? <p style={{ fontSize: '12px', color: 'var(--hub-positive)', marginBottom: '20px' }}>{message}</p> : null}
       {error ? <p style={{ fontSize: '12px', color: 'var(--hub-negative)', marginBottom: '20px' }}>{error}</p> : null}
@@ -90,7 +91,7 @@ export const RpgDashboardPage: React.FC = () => {
 
         <Card>
           <form onSubmit={handleSubmit} className="grid gap-4">
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
               Criar personagem
             </p>
 
@@ -158,7 +159,7 @@ export const RpgDashboardPage: React.FC = () => {
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

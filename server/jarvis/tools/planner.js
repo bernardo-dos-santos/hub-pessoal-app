@@ -1,17 +1,17 @@
 /**
  * jarvis/tools/planner.js — get_planner_day, create_planner_event,
- * delete_planner_event, get_concurso_status, get_weather.
+ * delete_planner_event, get_weather.
  *
  * Also do_checkin (daily mood/energy/sleep check-in): the Fase 1 design doc's
  * domain-file breakdown didn't list a home for this tool. It doesn't fit
  * finance/study/college/fitness/machine, and memory.js is specifically about
  * long-term facts/goals/audit, not daily state — planner.js already owns the
- * other "day in Bernardo's life" tools (get_planner_day, get_concurso_status),
+ * other "day in Bernardo's life" tools (get_planner_day, get_weather),
  * so do_checkin was placed here as the closest functional match.
  */
 
 import { kvStore } from '../../db.js';
-import { kv, todayStr, todayWeekDay, daysBetween } from '../context.js';
+import { kv, todayStr, todayWeekDay } from '../context.js';
 import { getWeather } from '../../weather.js';
 
 export const plannerTools = [
@@ -30,13 +30,8 @@ export const plannerTools = [
     },
   },
   {
-    name: 'get_concurso_status',
-    description: 'Dias até a prova do CBMSC e alertas de edital ainda não descartados. Use para "quanto falta pra prova?", "saiu edital?", ou quando o prazo for relevante pra decisão.',
-    input_schema: { type: 'object', properties: {} },
-  },
-  {
     name: 'get_weather',
-    description: 'Previsão do tempo de hoje e amanhã, com chance de chuva hora a hora no resto do dia. Use quando Bernardo perguntar do tempo, ou quando ele for correr/treinar ao ar livre — o Cooper do TAF é na rua.',
+    description: 'Previsão do tempo de hoje e amanhã, com chance de chuva hora a hora no resto do dia. Use quando Bernardo perguntar do tempo, ou quando ele for correr/treinar ao ar livre.',
     input_schema: { type: 'object', properties: {} },
   },
   {
@@ -93,21 +88,6 @@ export async function executePlannerTool(name, args) {
       };
       kvStore.set('jarvis.checkIns', JSON.stringify(checkIns));
       return { ok: true, message: 'Check-in registrado.', affectedKey: 'jarvis.checkIns' };
-    }
-
-    case 'get_concurso_status': {
-      const examDate = kv('concurso.examDate');
-      const today = todayStr();
-      const dismissed = new Set(kv('concurso.dismissedEditalAlerts') ?? []);
-      const alerts = (kv('concurso.editalAlertsCache')?.alerts ?? [])
-        .filter((a) => !dismissed.has(a.url ?? a.title))
-        .map((a) => ({ titulo: a.title, url: a.url, palavraChave: a.foundKeyword, detectadoEm: a.detectedAt }));
-      return {
-        ok: true,
-        dataProva: examDate ?? null,
-        diasAteProva: examDate ? daysBetween(today, examDate) : null,
-        alertasDeEdital: alerts,
-      };
     }
 
     case 'get_weather': {

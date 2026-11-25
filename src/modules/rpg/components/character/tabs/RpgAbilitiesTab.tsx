@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { Select } from '../../../../../shared/ui';
+import { Select, useConfirm } from '../../../../../shared/ui';
 import { rpgAbilityPresets } from '../../../data/rpgAbilityPresets';
 import { rpgAbilityCategoryLabels } from '../rpgCharacterHelpers';
 import { RpgFormulaChip } from '../../RpgFormulaChip';
@@ -27,8 +27,9 @@ type AbilityDraft = {
   description: string;
 };
 
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
-const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-pointer appearance-none';
+// Layout only — the base layer in global.css already styles bare inputs.
+const inputClass = 'w-full text-sm';
+const selectClass = 'w-full text-sm';
 
 function emptyDraft(): AbilityDraft {
   return { category: 'other', title: '', summary: '', description: '' };
@@ -48,6 +49,7 @@ export function RpgAbilitiesTab({
   onTrackerChange,
   onUseAbility,
 }: RpgAbilitiesTabProps) {
+  const confirmAction = useConfirm();
   const [draft, setDraft] = useState<AbilityDraft>(() => emptyDraft());
   const [presetId, setPresetId] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -109,8 +111,8 @@ export function RpgAbilitiesTab({
     }
   }
 
-  function handleDelete(ability: RpgAbility) {
-    if (!window.confirm(`Excluir a habilidade "${ability.title}"?`)) {
+  async function handleDelete(ability: RpgAbility) {
+    if (!(await confirmAction(`Excluir a habilidade "${ability.title}"?`))) {
       return;
     }
 
@@ -260,7 +262,7 @@ export function RpgAbilitiesTab({
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

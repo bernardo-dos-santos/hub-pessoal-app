@@ -9,7 +9,7 @@ import { deckService } from '../services/deckService';
 import { studySourceService, type StudySource } from '../services/studySourceService';
 
 const LABEL_STYLE = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.1em',

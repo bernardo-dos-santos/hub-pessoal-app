@@ -1,27 +1,12 @@
 import { storageAdapter } from '../../../core/storage/storage.adapter';
 import { generateId } from '../../../shared/utils/generateId';
+import { mondayOf, nextMondayFrom, targetWeekOf } from '../../../shared/planner/planWeek';
 import { type WeeklyPlan } from '../types/routine';
 
 const STORAGE_KEY = 'planner.weeklyPlan';
 // Mesma chave é lida pelo servidor em /api/planner/generate — se mudar aqui,
 // mude lá também, senão o job agendado volta a gerar por conta própria.
 const AUTO_KEY = 'planner.autoGenerate';
-
-function getMondayOf(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split('T')[0];
-}
-
-function getNextMondayFrom(date: Date): string {
-  const d = new Date(date);
-  const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().split('T')[0];
-}
 
 export const weeklyPlanService = {
   getCurrentPlan(): WeeklyPlan | null {
@@ -76,9 +61,7 @@ export const weeklyPlanService = {
   isOutdated(): boolean {
     const plan = this.getCurrentPlan();
     if (!plan) return true;
-    const today = new Date();
-    const currentMonday = getMondayOf(today);
-    return plan.weekOf < currentMonday;
+    return plan.weekOf < mondayOf();
   },
 
   isSundayAndNeedsRegen(): boolean {
@@ -87,14 +70,11 @@ export const weeklyPlanService = {
     if (!isSunday) return false;
     const plan = this.getCurrentPlan();
     if (!plan) return true;
-    const nextMonday = getNextMondayFrom(today);
-    return plan.weekOf !== nextMonday;
+    return plan.weekOf !== nextMondayFrom(today);
   },
 
   getTargetWeekOf(): string {
-    const today = new Date();
-    if (today.getDay() === 0) return getNextMondayFrom(today);
-    return getMondayOf(today);
+    return targetWeekOf();
   },
 
   formatWeekRange(weekOf: string): string {

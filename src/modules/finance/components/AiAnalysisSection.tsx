@@ -50,7 +50,7 @@ export function AiAnalysisSection({
     <Card className="mb-5">
       <p
         className="font-medium uppercase"
-        style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}
+        style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}
       >
         Análise IA
       </p>
@@ -63,7 +63,7 @@ export function AiAnalysisSection({
           marginBottom: analysis && analysis.month === selectedMonth ? '28px' : 0,
           background: 'none',
           border: 'none',
-          color: loading ? 'color-mix(in srgb, var(--hub-accent) 50%, transparent)' : 'color-mix(in srgb, var(--hub-accent) 90%, transparent)',
+          color: loading ? 'var(--hub-disabled)' : 'var(--hub-accent)',
           fontSize: '13px',
           fontWeight: 500,
           padding: 0,
@@ -81,7 +81,7 @@ export function AiAnalysisSection({
       {analysis && analysis.month === selectedMonth && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
           <div>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'color-mix(in srgb, var(--hub-accent) 75%, transparent)', marginBottom: '10px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-accent)', marginBottom: '10px' }}>
               Análise geral
             </p>
             <p style={{ fontSize: '13px', color: 'var(--hub-text-body)', lineHeight: 1.7 }}>{analysis.insight}</p>
@@ -93,7 +93,7 @@ export function AiAnalysisSection({
 
           {analysis.positives.length > 0 && (
             <div>
-              <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'color-mix(in srgb, var(--hub-positive) 75%, transparent)', marginBottom: '12px' }}>
+              <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-positive)', marginBottom: '12px' }}>
                 Pontos positivos
               </p>
               <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -109,7 +109,7 @@ export function AiAnalysisSection({
 
           {analysis.suggestions.length > 0 && (
             <div>
-              <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-warning)', marginBottom: '12px' }}>
+              <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-warning)', marginBottom: '12px' }}>
                 Sugestões
               </p>
               <ul style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -123,7 +123,7 @@ export function AiAnalysisSection({
             </div>
           )}
 
-          <p style={{ fontSize: '10px', color: 'var(--hub-disabled)', textAlign: 'center' }}>
+          <p style={{ fontSize: '11px', color: 'var(--hub-disabled)', textAlign: 'center' }}>
             Gerado em {new Date(analysis.generatedAt).toLocaleString('pt-BR')}
           </p>
         </div>

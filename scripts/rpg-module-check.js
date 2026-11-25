@@ -369,7 +369,6 @@ const characterCombatComponentSources = Object.fromEntries(
 );
 
 assert.equal(moduleConfigSource.includes("status: 'active'"), true, "RPG deve estar ativo");
-assert.equal(moduleConfigSource.includes("showInHome: true"), true, "RPG deve aparecer na Home");
 assert.equal(moduleConfigSource.includes("supportsBackup: true"), true, "RPG deve declarar suporte a backup local");
 
 assert.equal(routesSource.includes("path: 'rpg/*'"), true, "Rota RPG deve usar wildcard 'rpg/*'");

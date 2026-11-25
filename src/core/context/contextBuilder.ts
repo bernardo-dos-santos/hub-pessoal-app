@@ -18,6 +18,8 @@ import { taskService } from '../../modules/college/services/taskService';
 import { subjectService } from '../../modules/college/services/subjectService';
 import { storageAdapter } from '../storage/storage.adapter';
 import { updateDailyContext } from './dailyContext';
+import { localDayKey } from '../../shared/dates/localDay';
+import { getCurrentMonthKey, getPreviousMonthKey } from '../../modules/finance/utils/financePeriod';
 
 const MS_PER_DAY = 86_400_000;
 
@@ -26,31 +28,29 @@ function daysUntil(dateStr: string): number {
 }
 
 function sevenDaysFromNow(): string {
-  return new Date(Date.now() + 7 * MS_PER_DAY).toISOString().slice(0, 10);
+  return localDayKey(new Date(Date.now() + 7 * MS_PER_DAY));
 }
 
 function threeDaysFromNow(): string {
-  return new Date(Date.now() + 3 * MS_PER_DAY).toISOString().slice(0, 10);
+  return localDayKey(new Date(Date.now() + 3 * MS_PER_DAY));
 }
 
 export function rebuildDailyContext(): void {
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = localDayKey();
 
   // ── Finance ─────────────────────────────────────────────────────────────────
   try {
     const summary = financeSummaryService.getFinanceSummary();
     const transactions = transactionService.listTransactions();
-    const budgetSummary = budgetService.getBudgetsSummary(transactions);
+    const budgetSummary = budgetService.getBudgetsSummary(transactions, getCurrentMonthKey());
     const cutoff = sevenDaysFromNow();
     const invoicesDueSoon = invoiceService
       .listInvoices()
       .filter((inv) => inv.dueDate && inv.dueDate <= cutoff && inv.status !== 'paid').length;
 
     // Resumo mensal disponível?
-    const prevMonthDate = new Date();
-    prevMonthDate.setDate(1);
-    prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
-    const prevMonthKey = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+    // The financial month before this one — the key the server saves the summary under.
+    const prevMonthKey = getPreviousMonthKey(getCurrentMonthKey());
     const hasMonthlySummary = !!storageAdapter.getItem(`finance.monthly-summary.${prevMonthKey}`);
 
     updateDailyContext({
@@ -68,8 +68,8 @@ export function rebuildDailyContext(): void {
 
   // ── Study ────────────────────────────────────────────────────────────────────
   try {
-    // Exclusivo (não inclusivo): tira só matéria arquivada da faculdade, mantém
-    // tópico de concurso — ver subjectService.listArchivedSubjectTags().
+    // Exclusivo (não inclusivo): tira só matéria arquivada da faculdade — ver
+    // subjectService.listArchivedSubjectTags().
     const archivedTags = subjectService.listArchivedSubjectTags();
     updateDailyContext({
       study: {

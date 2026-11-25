@@ -32,6 +32,7 @@ import {
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { kvStore } from '../db.js';
+import { currentUserId, OWNER_ID } from '../userContext.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -46,7 +47,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
  * falta de uma pasta é o tipo de erro que não dá para consertar depois.
  */
 const STORE_ROOT = resolve(__dirname, '../../jarvis-memory');
-const DEFAULT_USER = 'default';
+
+/**
+ * Antes do multiusuário a pasta do único usuário se chamava `default`. Ela
+ * vira a do dono, uma vez só — a pasta de cada usuário é o id dele.
+ */
+const LEGACY_ROOT = resolve(STORE_ROOT, 'default');
+const OWNER_ROOT = resolve(STORE_ROOT, String(OWNER_ID));
+if (existsSync(LEGACY_ROOT) && !existsSync(OWNER_ROOT)) renameSync(LEGACY_ROOT, OWNER_ROOT);
 
 /** Caminho virtual que o modelo enxerga. Nada fora daqui é acessível. */
 const VIRTUAL_ROOT = '/memories';
@@ -69,8 +77,8 @@ const MAX_PROFILE_CHARS = 2_000;
 
 const MAX_LINES = 999_999;
 
-function userRoot(userId = DEFAULT_USER) {
-  return resolve(STORE_ROOT, userId);
+function userRoot(userId) {
+  return resolve(STORE_ROOT, String(userId));
 }
 
 function ensureRoot(userId) {
@@ -290,7 +298,7 @@ export const READ_ONLY_MEMORY_COMMANDS = new Set(['view']);
  * erro para o modelo, porque uma exceção aqui derrubaria o turno inteiro por
  * causa de uma anotação que não conseguiu ser salva.
  */
-export function runMemoryCommand(args = {}, userId = DEFAULT_USER) {
+export function runMemoryCommand(args = {}, userId = currentUserId()) {
   const handler = COMMANDS[args.command];
   if (!handler) return fail(`Error: unknown command ${args.command}`);
   try {
@@ -307,7 +315,7 @@ export function runMemoryCommand(args = {}, userId = DEFAULT_USER) {
  * MAX_PROFILE_CHARS. Retorna null quando não existe — o bloco inteiro some do
  * prompt em vez de mandar "vazio", que só gastaria token dizendo nada.
  */
-export function readProfile(userId = DEFAULT_USER) {
+export function readProfile(userId = currentUserId()) {
   try {
     const target = realPath(PROFILE_PATH, userId);
     if (!target || !existsSync(target)) return null;
@@ -333,7 +341,7 @@ const LEGACY_KEY = 'jarvis.memories';
  * de novo. Se `perfil.md` já tiver conteúdo, os fatos são ANEXADOS — reescrever
  * apagaria o que o modelo escreveu com a tool nova.
  */
-export function migrateLegacyMemories(userId = DEFAULT_USER) {
+export function migrateLegacyMemories(userId = currentUserId()) {
   const raw = kvStore.get(LEGACY_KEY);
   if (!raw) return { migrated: 0 };
 

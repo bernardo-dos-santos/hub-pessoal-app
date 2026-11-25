@@ -14,22 +14,28 @@
  *   });
  */
 
-const HUB_URL = process.env.HUB_BACKEND ?? 'http://localhost:3001';
+import { HUB_URL } from './hubApi.js';
 
-export async function notifySyncFailure(scriptName, err) {
-  const detail = err instanceof Error ? err.message : String(err);
+/**
+ * Push to the owner's devices (browser and APK) through the Hub server.
+ * Never throws — see the header. `dedupeKey`: the server sends the same key at
+ * most once a day (server/push.js) — a job failing every run must not push
+ * every run.
+ */
+export async function notifyOwner({ title, body, url = '/', dedupeKey }) {
   try {
     await fetch(`${HUB_URL}/api/push/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: `⚠️ Sync falhou: ${scriptName}`,
-        body: detail.slice(0, 180),
-        url: '/',
-      }),
+      body: JSON.stringify({ title, body: String(body ?? '').slice(0, 180), url, dedupeKey }),
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
     // servidor offline ou push não configurado — silencioso por design
   }
+}
+
+export async function notifySyncFailure(scriptName, err) {
+  const detail = err instanceof Error ? err.message : String(err);
+  await notifyOwner({ title: `⚠️ Sync falhou: ${scriptName}`, body: detail, url: '/automacoes', dedupeKey: `sync-failed:${scriptName}` });
 }

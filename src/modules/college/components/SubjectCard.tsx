@@ -21,14 +21,14 @@ export function SubjectCard({ actions, subject }: SubjectCardProps) {
             <h3 className="text-sm font-semibold" style={{ color: 'var(--hub-text)' }}>{subject.name}</h3>
             {subject.shortName ? (
               <span
-                className="text-[10px] font-semibold uppercase tracking-wider"
+                className="text-[11px] font-semibold uppercase tracking-wider"
                 style={{ color: 'var(--hub-subtle)' }}
               >
                 {subject.shortName}
               </span>
             ) : null}
             <span
-              className="ml-auto text-[10px] font-semibold uppercase tracking-wider"
+              className="ml-auto text-[11px] font-semibold uppercase tracking-wider"
               style={{ color: 'var(--hub-subtle)' }}
             >
               {formatSubjectStatus(subject.status)}

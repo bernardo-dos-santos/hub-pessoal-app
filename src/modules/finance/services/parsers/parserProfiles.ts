@@ -1,5 +1,6 @@
 import { type ParserProfile, type ParserValidationResult, type StructuredTransactionRow } from '../../types/import';
 import { parseAmountFromStructuredRow } from './structuredTransactionParser';
+import { parseMoneyText } from '../../utils/moneyParsing';
 
 function validateBaseRow(row: StructuredTransactionRow): ParserValidationResult {
   const errors: string[] = [];
@@ -22,7 +23,13 @@ function validateBaseRow(row: StructuredTransactionRow): ParserValidationResult 
     errors.push('Valor ausente.');
   }
 
-  if (row.amount === 0 || row.value === 0 || row.entryAmount === 0 || row.exitAmount === 0) {
+  // The value is checked after parsing: comparing the CSV string with 0 never
+  // fired, and an unreadable "1.234,56-" went in as R$ 0 without a word.
+  const rawValues = [row.amount, row.value, row.entryAmount, row.exitAmount].filter((v) => v !== undefined && v !== '');
+  const parsedValues = rawValues.map((v) => parseMoneyText(v));
+  if (rawValues.length > 0 && parsedValues.every((v) => v === null)) {
+    errors.push(`Valor ilegível: "${String(rawValues[0])}".`);
+  } else if (parsedValues.length > 0 && parsedValues.every((v) => v === null || v === 0)) {
     warnings.push('Valor zerado.');
   }
 
@@ -42,14 +49,10 @@ function getOriginalDescription(row: StructuredTransactionRow) {
 }
 
 function getNubankCreditCardAmount(row: StructuredTransactionRow) {
-  const parsedAmount = parseAmountFromStructuredRow(row, nubankCreditCardProfile);
-  const description = getDescription(row).toLowerCase();
-  const isPositiveCardMovement =
-    description.includes('pagamento recebido') ||
-    description.includes('estorno') ||
-    description.includes('reembolso');
-
-  return isPositiveCardMovement ? Math.abs(parsedAmount) : -Math.abs(parsedAmount);
+  // The card CSV lists purchases as positive and credits (bill payment, refund,
+  // discount, adjustment) as negative: flip the sign. A keyword list used to
+  // decide, and any credit it didn't know ("Desconto antecipação") became spending.
+  return -parseAmountFromStructuredRow(row, nubankCreditCardProfile);
 }
 
 export const nubankAccountProfile: ParserProfile = {

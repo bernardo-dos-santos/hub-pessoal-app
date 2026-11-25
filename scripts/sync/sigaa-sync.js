@@ -1,11 +1,25 @@
 /**
  * SIGAA Sync — Hub Pessoal (Puppeteer)
  *
- * Uso:
- *   1. Copie scripts/config/sigaa-config.example.json para scripts/config/sigaa-config.json
- *   2. Preencha login e password (o mesmo que você usa no site do SIGAA)
- *   3. Execute: node scripts/sync/sigaa-sync.js
- *   4. Importe o arquivo sigaa-export.json gerado em /faculdade/sigaa no Hub
+ * Roda para cada usuário com o SIGAA conectado em Configurações → Conexões
+ * (login cifrado em `secrets`, ver server/connections/sigaa.js) — o dono
+ * primeiro, os outros em seguida, um por vez e com intervalo entre os logins:
+ * todos saem do mesmo IP, e o anti-bot do SIGAA já bloqueia o dono sozinho de
+ * vez em quando. Se ele aparecer, a rodada para ali — insistir com o próximo
+ * usuário só agrava o bloqueio.
+ *
+ * Cada usuário recebe data/pending/<id>/sigaa-pending.json (que o app importa)
+ * e o resultado em `college.sigaa.lastSync`; falha de outro usuário não deixa a
+ * saúde do dono vermelha.
+ *
+ * Uso: node scripts/sync/sigaa-sync.js [--headless] [--user <id>] [--unlock]
+ *
+ * --unlock: para destravar o anti-bot à mão uma vez — o navegador fica visível
+ * por chrome://inspect através de um túnel ssh, e o sync espera o captcha ser
+ * resolvido (ver UNLOCK).
+ *
+ * NÃO rode do notebook: o anti-bot queima o acesso — a verdade está no log do
+ * servidor dedicado.
  */
 
 import puppeteer from 'puppeteer';
@@ -13,9 +27,16 @@ import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync } from 'nod
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { notifySyncFailure } from '../lib/notify.js';
+import { notifyOwner, notifySyncFailure } from '../lib/notify.js';
+import { createLogger } from '../lib/logger.js';
+import { HUB_URL, waitForHub } from '../lib/hubApi.js';
 import { classifySigaaFiles } from '../lib/sigaaLinkClassifier.js';
 import { callAi } from '../../server/aiProvider.js';
+import { currentUserId, runAsUser, OWNER_ID } from '../../server/userContext.js';
+import { DATA_DIR, pendingPath, writePending } from '../../server/pendingFiles.js';
+import { kvStore, users } from '../../server/db.js';
+import { readSigaaConfig } from '../../server/connections/sigaa.js';
+import { localDayKey } from '../../src/shared/dates/localDay.js';
 
 // Carrega variáveis do .env raiz (o servidor as tem via PM2, mas scripts standalone não)
 {
@@ -28,73 +49,55 @@ import { callAi } from '../../server/aiProvider.js';
   } catch { /* .env ausente — variáveis devem estar no ambiente */ }
 }
 
-const BACKEND_URL = process.env.HUB_BACKEND ?? 'http://localhost:3001';
+
+/**
+ * Backend call as the user being synced: from localhost the request is the
+ * owner's (admin), and X-Hub-User is how the admin acts as someone else.
+ */
+function hubFetch(path, init = {}) {
+  const userId = currentUserId();
+  const headers = { ...(init.headers ?? {}), ...(userId === OWNER_ID ? {} : { 'X-Hub-User': String(userId) }) };
+  return fetch(`${HUB_URL}${path}`, { ...init, headers });
+}
 
 // Período de férias/entre semestres cadastrado em Faculdade > Configurações
 // (college.semesterBreak, ver collegeBreakService.ts no frontend — mesma regra
 // de comparação de datas duplicada aqui pela mesma razão de sempre: script
-// standalone não importa TS do frontend).
-async function isOnSemesterBreak() {
+// standalone não importa TS do frontend). De cada usuário, no kv dele.
+function isOnSemesterBreak() {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/store/college.semesterBreak`);
-    if (!res.ok) return false; // 404 = nunca configurado; outro erro = não bloqueia o sync
-    const { value } = await res.json();
+    const value = JSON.parse(kvStore.get('college.semesterBreak') ?? 'null');
     if (!value?.startDate || !value?.endDate) return false;
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localDayKey();
     return today >= value.startDate && today <= value.endDate;
   } catch {
-    return false; // backend offline — não é motivo pra pular o sync
+    return false;
   }
 }
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const configPath = resolve(__dirname, '../config/sigaa-config.json');
-
-let config;
-try {
-  config = JSON.parse(readFileSync(configPath, 'utf-8'));
-} catch {
-  console.error('[SIGAA] Arquivo de configuração não encontrado.');
-  console.error(`[SIGAA] Crie o arquivo: ${configPath}`);
-  process.exit(1);
-}
-
-if (!config.login || !config.password) {
-  console.error('[SIGAA] Login ou senha não preenchidos em sigaa-config.json.');
-  process.exit(1);
-}
-
+const log = createLogger('sigaa-sync');
 const BASE_URL = 'https://sig.ifsc.edu.br';
 const PORTAL_URL = `${BASE_URL}/sigaa/portais/discente/discente.jsf`;
 
 // Quando chamado com --headless (ex: pelo Task Scheduler), roda sem janela
 const IS_HEADLESS = process.argv.includes('--headless');
-
-// Normaliza espaços internos (SIGAA às vezes tem \n ou espaços extras nos links)
-function norm(t) { return t.replace(/\s+/g, ' ').trim(); }
-
-// Clica em link pelo texto exato (espaços normalizados, busca em toda a página)
-async function clickByText(page, text, timeout = 8000) {
-  await page.waitForFunction(
-    (t) => Array.from(document.querySelectorAll('a')).some(a => a.textContent.replace(/\s+/g, ' ').trim() === t),
-    { timeout },
-    text
-  );
-  await page.evaluate((t) => {
-    const link = Array.from(document.querySelectorAll('a'))
-      .find(a => a.textContent.replace(/\s+/g, ' ').trim() === t);
-    link?.click();
-  }, text);
-}
-
-// Aguarda texto aparecer na página (útil após PostBack JSF)
-async function waitForText(page, text, timeout = 15000) {
-  await page.waitForFunction(
-    (t) => document.body.textContent.includes(t),
-    { timeout },
-    text
-  );
-}
+/**
+ * --unlock: a human solves the anti-bot captcha once. The server has no
+ * monitor, so the browser exposes its DevTools on 127.0.0.1:UNLOCK_DEBUG_PORT
+ * (server-local only): tunnel it with `ssh -L 9333:127.0.0.1:9333 <server>`
+ * and open chrome://inspect on another machine — the page shows up live and
+ * clickable. The sync waits for the captcha instead of giving up, and the
+ * per-user profile keeps the pass for the scheduled runs that follow.
+ * Use with --user.
+ */
+const UNLOCK = process.argv.includes('--unlock');
+const UNLOCK_WAIT_MS = 5 * 60 * 1000;
+const UNLOCK_DEBUG_PORT = 9333;
+const ONLY_USER = process.argv.includes('--user') ? Number(process.argv[process.argv.indexOf('--user') + 1]) : null;
+/** Pause between two users' logins — they all leave from the same IP. */
+const BETWEEN_USERS_MS = 3 * 60 * 1000;
+/** Per-user ceiling (the whole run used to have this single budget). */
+const USER_TIMEOUT_MS = 12 * 60 * 1000;
 
 // Detecta a página de bloqueio do anti-bot. Checa URL e conteúdo porque o
 // interstício nem sempre troca o domínio — às vezes ele é servido no próprio
@@ -111,7 +114,23 @@ async function isAntiBotWall(page) {
 }
 
 // --- LOGIN ---
-async function login(page) {
+/** Throws on the anti-bot wall — or, with --unlock, waits for a human to get past it. */
+async function passAntiBotWall(page) {
+  if (!(await isAntiBotWall(page))) return false;
+  if (!UNLOCK) throw new Error(ANTI_BOT_ERROR);
+  console.log('[SIGAA] Captcha do anti-bot na tela — resolva na janela do navegador (até 5 min).');
+  const deadline = Date.now() + UNLOCK_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    if (!(await isAntiBotWall(page).catch(() => true))) {
+      console.log('[SIGAA] Passou pelo anti-bot — seguindo.');
+      return true;
+    }
+  }
+  throw new Error(ANTI_BOT_ERROR);
+}
+
+async function login(page, credentials, attempt = 1) {
   console.log('[SIGAA] Acessando página de login...');
   await page.goto(`${BASE_URL}/sigaa/verTelaLogin.do`, {
     waitUntil: 'networkidle2',
@@ -120,13 +139,15 @@ async function login(page) {
 
   // O bloqueio pode vir já aqui, no lugar da tela de login — sem essa checagem o
   // script morreria num timeout de seletor, que não diz nada sobre a causa.
-  if (await isAntiBotWall(page)) throw new Error(ANTI_BOT_ERROR);
+  if (await passAntiBotWall(page)) {
+    await page.goto(`${BASE_URL}/sigaa/verTelaLogin.do`, { waitUntil: 'networkidle2', timeout: 60000 });
+  }
 
   await page.waitForSelector('input[name="user.login"]', { timeout: 60000 });
 
   console.log('[SIGAA] Preenchendo credenciais...');
-  await page.type('input[name="user.login"]', config.login, { delay: 80 });
-  await page.type('input[name="user.senha"]', config.password, { delay: 80 });
+  await page.type('input[name="user.login"]', credentials.login, { delay: 80 });
+  await page.type('input[name="user.senha"]', credentials.password, { delay: 80 });
 
   console.log('[SIGAA] Aguardando validação Cloudflare...');
   await new Promise(r => setTimeout(r, IS_HEADLESS ? 6000 : 3000));
@@ -147,10 +168,18 @@ async function login(page) {
   if (page.url().includes('verTelaLogin')) {
     console.log('[SIGAA] Clicando em Entrar (2ª tentativa)...');
     await new Promise(r => setTimeout(r, 1000));
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
-      clickEntrar(),
-    ]);
+    try {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),
+        clickEntrar(),
+      ]);
+    } catch (err) {
+      // A navigation that never ends is how the wall shows up when it's served
+      // in place of the post-login page — it surfaced as "Navigation timeout",
+      // which hid the block (and skipped the pause after it).
+      if (await isAntiBotWall(page)) throw new Error(ANTI_BOT_ERROR);
+      throw err;
+    }
   }
 
   // O SIGAA fica atrás de um anti-bot (Shape/F5, domínio "validate.perfdrive")
@@ -161,19 +190,71 @@ async function login(page) {
   // por cima do real, que é justamente o padrão que já custou semanas no
   // aiProvider. Nenhum script resolve o captcha; o sync tem que ser refeito
   // depois ou de outra rede.
-  if (await isAntiBotWall(page)) throw new Error(ANTI_BOT_ERROR);
+  // Com --unlock, depois do captcha o login recomeça do zero (uma vez só).
+  if (await passAntiBotWall(page)) {
+    if (attempt > 1) throw new Error(ANTI_BOT_ERROR);
+    return login(page, credentials, attempt + 1);
+  }
 
   if (page.url().includes('verTelaLogin')) {
-    throw new Error('Login falhou. Verifique login e senha em sigaa-config.json.');
+    throw new Error('Login falhou — confira o usuário e a senha do SIGAA em Configurações → Conexões.');
   }
 
   console.log('[SIGAA] Login realizado com sucesso.');
 }
 
+/**
+ * Whether the profile's saved cookie still opens the portal. Each login is
+ * what the anti-bot weighs, so a session that is still alive is used as is:
+ * one page view instead of a login form. Without one the SIGAA sends us to the
+ * login page, which login() opens next anyway.
+ */
+async function hasLiveSession(page) {
+  await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 60000 }).catch(() => {});
+  await passAntiBotWall(page);
+  return page.url().includes('/sigaa/portais/');
+}
+
 // --- EXTRAIR "MINHAS ATIVIDADES" DO PORTAL ---
+const EVALUATION_ERROR =
+  'O SIGAA está pedindo a avaliação dos professores (avaliação institucional) antes de liberar o portal — ' +
+  'faça a avaliação no site do SIGAA e a próxima busca volta a funcionar.';
+
+/**
+ * Some periods the SIGAA sends the student to the teacher evaluation instead of
+ * the portal, and nothing else opens until it's done. Only the student can do
+ * it, so the error has to say exactly that — a generic navigation error sent
+ * the owner hunting in the code for a form he had to fill in.
+ */
+async function isEvaluationPending(page) {
+  const text = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+  return /avalia[çc][ãa]o\s+(institucional|docente|d[oe]s?\s+(docentes|professores))/i.test(text);
+}
+
+/**
+ * The SIGAA often answers a portal navigation with its own JSF redirect, and
+ * Puppeteer reports the first navigation as net::ERR_ABORTED even though the
+ * page arrives. Treat that as success when we ended up in the portal; retry
+ * once otherwise.
+ */
+async function gotoPortal(page, attempt = 1) {
+  try {
+    await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+  } catch (err) {
+    if (!String(err.message).includes('ERR_ABORTED')) throw err;
+    await page.waitForNetworkIdle({ idleTime: 800, timeout: 15000 }).catch(() => {});
+    if (!page.url().includes('/sigaa/portais/')) {
+      if (await isEvaluationPending(page)) throw new Error(EVALUATION_ERROR);
+      if (attempt > 1) throw err;
+      return gotoPortal(page, attempt + 1);
+    }
+  }
+  if (!page.url().includes('/sigaa/portais/') && await isEvaluationPending(page)) throw new Error(EVALUATION_ERROR);
+}
+
 async function extractMyActivities(page) {
   // Garante que estamos no portal e aguarda carregamento completo dos portlets
-  await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+  await gotoPortal(page);
   await new Promise(r => setTimeout(r, 2500)); // portlets AJAX do SIGAA
 
   const result = await page.evaluate(() => {
@@ -294,7 +375,7 @@ async function extractMyActivities(page) {
 
 // --- BUSCAR DADOS DAS TURMAS (nome + código + período direto do portal) ---
 async function getCourseData(page) {
-  await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+  await gotoPortal(page);
 
   return await page.evaluate(() => {
     for (const table of document.querySelectorAll('table')) {
@@ -375,7 +456,7 @@ async function navigateToCourse(page, courseName) {
   ).then(() => true).catch(() => false);
 
   // --- Tentativa 1 ---
-  await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+  await gotoPortal(page);
   if (IS_HEADLESS) await new Promise(r => setTimeout(r, 2000));
 
   const linkInfo = await clickCourseLink('course');
@@ -388,7 +469,7 @@ async function navigateToCourse(page, courseName) {
   // --- Tentativa 2 (se AVA não carregou) ---
   if (!avaLoaded) {
     console.log(`[SIGAA]     ⚠ AVA não carregou em 20s — retentando (tentativa 2/2)`);
-    await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+    await gotoPortal(page);
     await new Promise(r => setTimeout(r, IS_HEADLESS ? 4000 : 2000)); // portlets precisam de mais tempo
     await clickCourseLink('course-retry');
     await new Promise(r => setTimeout(r, 800));
@@ -676,13 +757,6 @@ async function extractFiles(page) {
 const NEWS_CONTENT_FETCH_DAYS = 30;
 
 async function extractNews(page) {
-  // Helper: detecta se a tabela da lista de notícias está visível
-  function isNewsListVisible() {
-    return Array.from(document.querySelectorAll('table tbody tr'))
-      .some(row => Array.from(row.querySelectorAll('td'))
-        .some(td => /\d{2}\/\d{2}\/\d{4}/.test(td.textContent)));
-  }
-
   // Helper: clica em "Notícias" na sidebar e aguarda a tabela de lista aparecer.
   // "Notícias" causa navegação real (URL muda para NoticiaTurma/listar.jsf),
   // então waitForNavigation deve ser preparado ANTES do clique.
@@ -1053,9 +1127,6 @@ async function extractAttendance(page) {
       const faltasMatch = text.match(/Total de Faltas:\s*(\d+)/i);
       const maxMatch = text.match(/M[aá]ximo de Faltas[^:\n]*:\s*(\d+)/i);
       if (!faltasMatch) return null;
-      const lines = text.split('\n');
-      const fi = lines.findIndex(l => /Total de Faltas/i.test(l));
-      const ctx = lines.slice(Math.max(0, fi - 1), fi + 4).join(' | ');
       return {
         absences: parseInt(faltasMatch[1]),
         totalAllowed: maxMatch ? parseInt(maxMatch[1]) : null,
@@ -1365,7 +1436,7 @@ async function clickAndDownloadPdf(page, browser, linkTitle) {
 async function extractAndSavePdf(page, browser, file, arquivosUrl) {
   // Pula se o texto já foi extraído
   try {
-    const check = await fetch(`${BACKEND_URL}/api/materials/${file.id}/text`);
+    const check = await hubFetch(`/api/materials/${file.id}/text`);
     if (check.ok) {
       console.log(`[SIGAA]     [PDF] "${file.title}" já extraído, pulando.`);
       return true;
@@ -1408,7 +1479,7 @@ async function extractAndSavePdf(page, browser, file, arquivosUrl) {
   }
 
   try {
-    const res = await fetch(`${BACKEND_URL}/api/materials/${file.id}/extract`, {
+    const res = await hubFetch(`/api/materials/${file.id}/extract`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/pdf' },
       body: buffer,
@@ -1426,18 +1497,16 @@ async function extractAndSavePdf(page, browser, file, arquivosUrl) {
 }
 
 // --- MAIN ---
-async function run() {
-  if (IS_HEADLESS) {
-    console.log('[SIGAA] Modo headless ativado (agendado).');
+/** One user's sync. Throws on failure; returns the number of courses exported, or null when skipped. */
+async function run(credentials) {
+  const userId = currentUserId();
+  if (isOnSemesterBreak()) {
+    console.log(`[SIGAA] Usuário ${userId} em período de férias (Faculdade > Configurações) — pulado, sem abrir navegador.`);
+    return null;
   }
 
-  if (await isOnSemesterBreak()) {
-    console.log('[SIGAA] Dentro do período de férias cadastrado (Faculdade > Configurações) — sync pulado, sem abrir navegador.');
-    return;
-  }
-
-  // Carrega o último export para reutilizar parsedPlan já processados (evita chamar a IA de novo)
-  const lastExportPath = resolve(process.cwd(), 'sigaa-export.json');
+  // O último export deste usuário serve de cache de parsedPlan (evita chamar a IA de novo)
+  const lastExportPath = pendingPath('sigaa', userId);
   let lastExportCourses = [];
   try {
     const raw = JSON.parse(readFileSync(lastExportPath, 'utf-8'));
@@ -1453,46 +1522,66 @@ async function run() {
   }
 
   const browser = await puppeteer.launch({
+    // Perfil do navegador guardado por usuário entre as rodadas (cookies,
+    // histórico): um navegador "novo em folha" a cada login é exatamente o
+    // padrão que o anti-bot do SIGAA procura, e o cookie de quem já passou
+    // pela verificação uma vez vale para as próximas. Fica em data/, que é
+    // sensível e fora do git — tem a sessão do SIGAA dentro.
+    userDataDir: join(DATA_DIR, 'browser', `sigaa-u${userId}`),
+    ...(UNLOCK ? { debuggingPort: UNLOCK_DEBUG_PORT } : {}),
     // Sempre headless: false — o SIGAA/Cloudflare detecta o headless nativo do Chrome
-    // e serve uma página reduzida. Em modo "agendado" (--headless), a janela é
-    // posicionada fora da tela (-32000,-32000) para ficar invisível ao usuário.
+    // e serve uma página reduzida.
     headless: false,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    // Signals the anti-bot (Radware) reads as "automated", removed on purpose:
+    // Puppeteer's default --enable-automation (the "controlled by automated
+    // software" flag), an emulated viewport whose screen matches no real
+    // monitor (set only after login, below), and --no-sandbox/--disable-setuid-
+    // sandbox — Linux-only flags that on Windows just add an "unsupported flag"
+    // warning nobody's real Chrome has.
+    //
+    // The scheduled run used to hide the window too: --window-position=-32000
+    // (window.screenX -32000, a screen no person has) and --disable-gpu (the page
+    // can't get WebGL at all — a classic bot fingerprint), plus the Linux-only
+    // --disable-dev-shm-usage. Hiding made sense on a desktop someone used; the
+    // server has no monitor, so the window is invisible anyway. All three went
+    // after the 2026-10-11 runs kept hitting the captcha. (puppeteer-extra's
+    // stealth plugin was tried and dropped the same day: on a headful Chrome it
+    // adds little and lies inconsistently — en-US languages on a Brazilian
+    // site, a Mac WebGL renderer on Windows.)
+    ignoreDefaultArgs: ['--enable-automation'],
+    defaultViewport: null,
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
       '--window-size=1280,800',
-      ...(IS_HEADLESS ? [
-        '--window-position=-32000,-32000', // janela off-screen = invisível
-        '--disable-gpu',
-        '--disable-dev-shm-usage',
-      ] : []),
     ],
   });
 
   const page = await browser.newPage();
-  // Viewport alto garante que todos os elementos do AVA (sidebar, listas longas)
-  // tenham bounding-box calculado corretamente pelo Chrome mesmo com --disable-gpu
-  // e janela off-screen. ElementHandle.click() verifica bounding-box antes de clicar
-  // — sem isso, links "fora do viewport" retornam "not clickable".
-  await page.setViewport({ width: 1280, height: 3000 });
-  await page.setUserAgent(
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-  );
+  // No User-Agent override: the browser is the server's real Chrome, and a fixed
+  // "Chrome/124" string next to the Client Hints of Chrome 154 is exactly the
+  // inconsistency the SIGAA's anti-bot (Radware) looks for — the captcha kept
+  // coming back even with the saved profile until this went away.
   await page.evaluateOnNewDocument(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
 
   try {
-    await login(page);
+    if (await hasLiveSession(page)) console.log('[SIGAA] Sessão anterior ainda válida — sem novo login.');
+    else await login(page, credentials);
+
+    // Viewport alto garante que todos os elementos do AVA (sidebar, listas longas)
+    // tenham bounding-box calculado corretamente pelo Chrome mesmo com --disable-gpu
+    // e janela off-screen. ElementHandle.click() verifica bounding-box antes de clicar
+    // — sem isso, links "fora do viewport" retornam "not clickable". Só depois do
+    // login: a tela emulada de 1280×3000 é um dos sinais que o anti-bot pesa.
+    await page.setViewport({ width: 1280, height: 3000 });
 
     // Pega nome do estudante da página do portal
-    await page.goto(PORTAL_URL, { waitUntil: 'networkidle2', timeout: 30000 });
+    await gotoPortal(page);
     const studentName = await page.evaluate(() =>
       document.querySelector('.info-nome, [class*="nome-usuario"], #identificacaoUsuario span')
         ?.textContent.trim() ||
-      document.body.textContent.match(/BERNARDO|[A-Z]{2,}\s[A-Z]{2,}\s[A-Z]{2,}/)?.[0] ||
       'Estudante'
     );
     console.log(`[SIGAA] Logado como: ${studentName}`);
@@ -1581,7 +1670,7 @@ async function run() {
         }
       }
       console.log('\n[SIGAA] --test-grades concluído.');
-      return;
+      return null;
     }
 
     // Extrai "Minhas Atividades" do portal (avaliações + tarefas de todas as disciplinas)
@@ -1689,7 +1778,7 @@ async function run() {
         });
       } catch (err) {
         console.warn(`[SIGAA]     Erro em "${courseName}": ${err.message}`);
-        await page.screenshot({ path: `sigaa-error-${courseName.slice(0, 10)}.png` }).catch(() => {});
+        await page.screenshot({ path: `sigaa-error-u${userId}-${courseName.slice(0, 10)}.png` }).catch(() => {});
       }
     }
 
@@ -1702,33 +1791,142 @@ async function run() {
 
     const json = JSON.stringify(output, null, 2);
 
-    // Exportação manual (compatibilidade)
-    const outputPath = resolve(process.cwd(), 'sigaa-export.json');
-    writeFileSync(outputPath, json, 'utf-8');
+    // Exportação manual (compatibilidade com Faculdade > SIGAA) — só a do dono
+    if (userId === OWNER_ID) writeFileSync(resolve(process.cwd(), 'sigaa-export.json'), json, 'utf-8');
 
-    // Auto-import pelo Hub (Vite serve /public/* na raiz)
-    const pendingPath = resolve(process.cwd(), 'public', 'sigaa-pending.json');
-    writeFileSync(pendingPath, json, 'utf-8');
-
-    console.log(`\n[SIGAA] Exportação concluída: ${outputPath}`);
-    console.log(`[SIGAA] Auto-import disponível em: ${pendingPath}`);
+    // Auto-import pelo Hub (servido por GET /api/pending/sigaa)
+    const written = writePending('sigaa', json, userId);
+    console.log(`[SIGAA] Usuário ${userId}: ${exportedCourses.length} disciplina(s) → ${written}`);
+    return exportedCourses.length;
   } catch (err) {
-    console.error('[SIGAA] Erro:', err.message);
-    await page.screenshot({ path: 'sigaa-debug.png' }).catch(() => {});
-    console.error('[SIGAA] Screenshot salvo em sigaa-debug.png');
-    await notifySyncFailure('sigaa-sync', err);
-    process.exit(1);
+    await page.screenshot({ path: `sigaa-debug-u${userId}.png` }).catch(() => {});
+    throw err;
   } finally {
     await browser.close();
   }
 }
 
-const GLOBAL_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutos máximo
+function recordResult(result) {
+  kvStore.set('college.sigaa.lastSync', JSON.stringify({ at: new Date().toISOString(), ...result }));
+}
+
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`passou de ${ms / 60000} minutos`)), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** After the anti-bot blocks us, scheduled runs stay away this long. */
+const ANTI_BOT_PAUSE_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * When the anti-bot last blocked anyone. It judges the IP, not the account, so
+ * one user's block holds for all of them. Coming back every day kept the IP's
+ * reputation from ever recovering (blocked every run since 2026-10).
+ */
+function lastAntiBotBlock() {
+  let latest = null;
+  for (const user of users.list()) {
+    runAsUser(user.id, () => {
+      const last = JSON.parse(kvStore.get('college.sigaa.lastSync') ?? 'null');
+      if (last && !last.ok && last.error === ANTI_BOT_ERROR && (!latest || last.at > latest)) latest = last.at;
+    });
+  }
+  return latest;
+}
+
+async function main() {
+  if (IS_HEADLESS) console.log('[SIGAA] Modo headless ativado (agendado).');
+  // A run someone started by hand (--unlock, --user) is a decision to try now.
+  const blockedAt = UNLOCK || ONLY_USER !== null ? null : lastAntiBotBlock();
+  if (blockedAt && Date.now() - new Date(blockedAt).getTime() < ANTI_BOT_PAUSE_MS) {
+    const until = new Date(new Date(blockedAt).getTime() + ANTI_BOT_PAUSE_MS);
+    // warn, not success: the health screen keeps showing the block as the last outcome.
+    log.warn(`Pausado depois do bloqueio do anti-bot — volta a tentar em ${until.toLocaleDateString('pt-BR')}. Para tentar antes: npm run sigaa:unlock.`);
+    return;
+  }
+  await waitForHub({ log });
+  // O dono primeiro: o sync dele tem prioridade sobre o dos convidados.
+  const targets = users.list()
+    .filter((u) => !u.disabled_at && (ONLY_USER === null || u.id === ONLY_USER))
+    .sort((a, b) => (a.id === OWNER_ID ? -1 : b.id === OWNER_ID ? 1 : a.id - b.id));
+
+  let synced = 0;
+  let ownerError = null;
+  let loggedIn = false;
+
+  for (const user of targets) {
+    const stop = await runAsUser(user.id, async () => {
+      const credentials = readSigaaConfig();
+      if (!credentials) return false;
+      if (loggedIn) {
+        console.log(`[SIGAA] Aguardando ${BETWEEN_USERS_MS / 60000} min antes do próximo login (anti-bot).`);
+        await new Promise((r) => setTimeout(r, BETWEEN_USERS_MS));
+      }
+      loggedIn = true;
+      try {
+        const courses = await withTimeout(run(credentials), USER_TIMEOUT_MS);
+        if (courses === null) return false;
+        recordResult({ ok: true, courses });
+        synced += 1;
+        return false;
+      } catch (err) {
+        recordResult({ ok: false, error: err.message });
+        if (user.id === OWNER_ID) {
+          // Logged once, with the reason, by main()'s catch — that's what the health screen shows.
+          ownerError = err;
+        } else {
+          log.warn(`usuário ${user.id}: ${err.message}`);
+        }
+        // Anti-bot no ar: o próximo login do mesmo IP só piora o bloqueio.
+        return err.message === ANTI_BOT_ERROR;
+      }
+    });
+    if (stop) {
+      log.warn('Anti-bot do SIGAA ativo — rodada interrompida, os demais usuários ficam para a próxima.');
+      break;
+    }
+  }
+
+  if (ownerError) throw ownerError;
+  log.success(`${synced} usuário(s) sincronizado(s).`);
+}
+
+// Teto da rodada inteira: o de cada usuário mais as pausas entre eles.
+const GLOBAL_TIMEOUT_MS = 90 * 60 * 1000;
 const globalKill = setTimeout(async () => {
-  console.error('[SIGAA] Timeout global atingido (12min) — encerrando processo.');
-  await notifySyncFailure('sigaa-sync', new Error('Timeout global de 12 minutos atingido'));
+  log.error('Timeout global atingido (90min) — encerrando processo.');
+  await notifySyncFailure('sigaa-sync', new Error('Timeout global de 90 minutos atingido'));
   process.exit(1);
 }, GLOBAL_TIMEOUT_MS);
 globalKill.unref(); // não impede o processo de sair normalmente se terminar antes
 
-run().finally(() => clearTimeout(globalKill));
+/**
+ * The two failures only a human can fix get a push that says what to do;
+ * anything else is a plain "sync failed". The captcha used to fail silently for
+ * days (07–10/10) because nobody opened the health screen.
+ */
+async function notifyFailure(err) {
+  if (err.message === ANTI_BOT_ERROR) {
+    await notifyOwner({
+      title: '🔒 SIGAA pediu captcha',
+      body: 'O anti-bot barrou a busca. No notebook: npm run sigaa:unlock e resolva pelo chrome://inspect.',
+      url: '/automacoes',
+      dedupeKey: 'sigaa:captcha',
+    });
+  } else if (err.message === EVALUATION_ERROR) {
+    await notifyOwner({ title: '📝 SIGAA: avaliação dos professores', body: 'Faça a avaliação no site do SIGAA — a próxima busca volta sozinha.', url: '/automacoes', dedupeKey: 'sigaa:evaluation' });
+  } else {
+    await notifySyncFailure('sigaa-sync', err);
+  }
+}
+
+main()
+  .catch(async (err) => {
+    log.error(`Falhou — ${err.message}`);
+    await notifyFailure(err);
+    process.exitCode = 1;
+  })
+  .finally(() => clearTimeout(globalKill));

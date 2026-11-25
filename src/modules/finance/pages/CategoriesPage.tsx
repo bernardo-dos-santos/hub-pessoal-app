@@ -1,8 +1,10 @@
 import { type FormEvent, useMemo, useState } from 'react';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, useConfirm, Toast } from '../../../shared/ui';
 import { getFinanceTabs } from '../components/financeTabs';
 import { categoryRuleService } from '../services/categoryRuleService';
+import { categoryRuleApplicationService } from '../services/categoryRuleApplicationService';
 import { categoryService } from '../services/categoryService';
+import { categoryUsageService } from '../services/categoryUsageService';
 import { transactionService } from '../services/transactionService';
 import { type Category, type CategoryRule, type CategoryType } from '../types/category';
 import { type TransactionKind } from '../types/finance';
@@ -53,7 +55,8 @@ function createCategoryDraft(category?: Category): CategoryDraft {
 }
 
 export function CategoriesPage() {
-  const pendingReviewCount = transactionService.listRequiredReviewTransactions().length;
+  const confirmAction = useConfirm();
+  const pendingReviewCount = transactionService.listCurrentMonthReviewTransactions().length;
   const [rules, setRules] = useState(() => categoryRuleService.listCategoryRules());
   const [customCategories, setCustomCategories] = useState(() => categoryService.listCustomCategories());
   const [ruleDraft, setRuleDraft] = useState<RuleDraft>(() => createRuleDraft());
@@ -61,6 +64,7 @@ export function CategoriesPage() {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const [messageAction, setMessageAction] = useState<{ label: string; onClick: () => void; primary?: boolean } | null>(null);
   const [error, setError] = useState('');
 
   const defaultCategories = categoryService.listDefaultCategories();
@@ -95,8 +99,16 @@ export function CategoriesPage() {
 
     try {
       if (editingCategoryId) {
-        categoryService.updateCategory(editingCategoryId, categoryDraft);
-        setMessage('Categoria atualizada.');
+        const before = categoryService.listCustomCategories().find((category) => category.id === editingCategoryId);
+        const updated = categoryService.updateCategory(editingCategoryId, categoryDraft);
+        // The name lives on transactions, budgets and rules too — carry it over.
+        if (before && updated && before.name !== updated.name) {
+          const usage = categoryUsageService.countUsage(before.name);
+          categoryUsageService.renameEverywhere(before.name, updated.name);
+          setMessage(`Categoria renomeada. ${usage.transactions} lançamento(s), ${usage.budgets} orçamento(s) e ${usage.rules} regra(s) acompanharam o novo nome.`);
+        } else {
+          setMessage('Categoria atualizada.');
+        }
       } else {
         categoryService.createCategory(categoryDraft);
         setMessage('Categoria personalizada criada.');
@@ -121,13 +133,13 @@ export function CategoriesPage() {
         kind: ruleDraft.kind || undefined,
       };
 
+      let ruleId = editingRuleId;
       if (editingRuleId) {
         categoryRuleService.updateCategoryRule(editingRuleId, input);
-        setMessage('Regra atualizada.');
       } else {
-        categoryRuleService.createCategoryRule(input);
-        setMessage('Regra criada. Ela será usada em novas importações. Transações já salvas não foram alteradas automaticamente.');
+        ruleId = categoryRuleService.createCategoryRule(input).id;
       }
+      offerToApplyRule(ruleId, editingRuleId ? 'Regra atualizada.' : 'Regra criada.');
 
       refreshRules();
       resetRuleDraft();
@@ -136,11 +148,19 @@ export function CategoriesPage() {
     }
   }
 
-  function deleteCustomCategory(category: Category) {
-    if (!window.confirm(`Excluir a categoria "${category.name}"?`)) {
+  async function deleteCustomCategory(category: Category) {
+    const usage = categoryUsageService.countUsage(category.name);
+    const consequences = [
+      usage.transactions > 0 ? `${usage.transactions} lançamento(s) voltam para Revisar` : '',
+      usage.budgets > 0 ? `${usage.budgets} orçamento(s) ficam desligados` : '',
+      usage.rules > 0 ? `${usage.rules} regra(s) ficam desligadas` : '',
+    ].filter(Boolean);
+    const detail = consequences.length > 0 ? `\n\n${consequences.join('; ')}.` : '\n\nNenhum lançamento usa esta categoria.';
+    if (!(await confirmAction(`Excluir a categoria "${category.name}"?${detail}`))) {
       return;
     }
 
+    categoryUsageService.releaseCategory(category.name);
     categoryService.deleteCategory(category.id);
     refreshCategories();
     if (editingCategoryId === category.id) {
@@ -149,8 +169,8 @@ export function CategoriesPage() {
     setMessage('Categoria excluída.');
   }
 
-  function deleteRule(rule: CategoryRule) {
-    if (!window.confirm(`Excluir a regra "${rule.name}"?`)) {
+  async function deleteRule(rule: CategoryRule) {
+    if (!(await confirmAction(`Excluir a regra "${rule.name}"?`))) {
       return;
     }
 
@@ -162,6 +182,43 @@ export function CategoriesPage() {
     setMessage('Regra excluída.');
   }
 
+  /**
+   * A rule used to touch only future imports ("lançamentos já salvos não foram
+   * alterados"), so the lines that made someone write it stayed wrong. Offer to
+   * apply it to the saved ones it matches — with undo.
+   */
+  function offerToApplyRule(ruleId: string | null, savedText: string) {
+    const ids = ruleId
+      ? categoryRuleApplicationService
+          .previewApplyActiveRulesToEligibleTransactions()
+          .matches.filter((match) => match.matchedRuleId === ruleId)
+          .map((match) => match.transactionId)
+      : [];
+    if (ids.length === 0) {
+      setMessage(`${savedText} Vale para as próximas importações.`);
+      setMessageAction(null);
+      return;
+    }
+    setMessage(`${savedText} ${ids.length} lançamento${ids.length === 1 ? '' : 's'} já salvo${ids.length === 1 ? '' : 's'} se encaixa${ids.length === 1 ? '' : 'm'} nela.`);
+    setMessageAction({
+      label: 'Aplicar a eles',
+      primary: true,
+      onClick: () => {
+        const before = transactionService.listTransactions();
+        const result = categoryRuleApplicationService.applyActiveRulesToEligibleTransactions(ids);
+        setMessage(`${result.updatedCount} lançamento${result.updatedCount === 1 ? '' : 's'} atualizado${result.updatedCount === 1 ? '' : 's'}.`);
+        setMessageAction({
+          label: 'Desfazer',
+          onClick: () => {
+            transactionService.replaceTransactions(before);
+            setMessage('Lançamentos voltaram ao que eram.');
+            setMessageAction(null);
+          },
+        });
+      },
+    });
+  }
+
   return (
     <div>
       <ModuleHeader eyebrow="Módulo · Financeiro" title="Categorias e regras" tabs={getFinanceTabs(pendingReviewCount)} />
@@ -170,7 +227,13 @@ export function CategoriesPage() {
         Organize categorias personalizadas e regras manuais de classificação.
       </p>
 
-      {message ? <p style={{ fontSize: '12px', color: 'var(--hub-positive)', marginBottom: '20px' }}>{message}</p> : null}
+      {message ? (
+        <Toast
+          text={message}
+          onClose={() => { setMessage(''); setMessageAction(null); }}
+          actions={messageAction ? [messageAction] : []}
+        />
+      ) : null}
       {error ? <p style={{ fontSize: '12px', color: 'var(--hub-negative)', marginBottom: '20px' }}>{error}</p> : null}
 
       <Card className="mb-5">
@@ -183,7 +246,7 @@ export function CategoriesPage() {
       <Card className="mb-5">
         <div className="grid gap-x-16 gap-y-10 xl:grid-cols-2">
           <form onSubmit={handleCategorySubmit}>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
               {editingCategoryId ? 'Editar categoria personalizada' : 'Criar categoria personalizada'}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
@@ -222,7 +285,7 @@ export function CategoriesPage() {
           </form>
 
           <div>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
               Categorias personalizadas
             </p>
             <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
@@ -246,7 +309,7 @@ export function CategoriesPage() {
                           {categoryTypeLabel(category.type)}
                         </p>
                       </div>
-                      <span style={{ fontSize: '10px', color: category.isActive ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
+                      <span style={{ fontSize: '11px', color: category.isActive ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
                         {category.isActive ? 'Ativa' : 'Inativa'}
                       </span>
                     </div>
@@ -274,7 +337,7 @@ export function CategoriesPage() {
       <Card>
         <div className="grid gap-x-16 gap-y-10 xl:grid-cols-2">
           <form onSubmit={handleRuleSubmit}>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
               {editingRuleId ? 'Editar regra manual' : 'Criar regra manual'}
             </p>
             <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
@@ -328,7 +391,7 @@ export function CategoriesPage() {
           </form>
 
           <div>
-            <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
+            <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
               Regras manuais
             </p>
             <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
@@ -355,7 +418,7 @@ export function CategoriesPage() {
                           Tipo: {rule.kind ? formatTransactionKind(rule.kind) : 'manter classificador'}
                         </p>
                       </div>
-                      <span style={{ fontSize: '10px', color: rule.isActive ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
+                      <span style={{ fontSize: '11px', color: rule.isActive ? 'var(--hub-positive)' : 'var(--hub-subtle)', flexShrink: 0 }}>
                         {rule.isActive ? 'Ativa' : 'Inativa'}
                       </span>
                     </div>
@@ -386,7 +449,7 @@ export function CategoriesPage() {
 function CategoryList({ categories, description, title }: { categories: Category[]; description: string; title: string }) {
   return (
     <div>
-      <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
+      <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
         {title}
       </p>
       <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginBottom: '16px' }}>{description}</p>
@@ -397,7 +460,7 @@ function CategoryList({ categories, description, title }: { categories: Category
             style={{ paddingBottom: '10px', marginBottom: i === categories.length - 1 ? 0 : '10px', borderBottom: i === categories.length - 1 ? 'none' : '1px solid var(--hub-border)' }}
           >
             <p style={{ fontSize: '13px', color: 'var(--hub-text-body)' }}>{category.name}</p>
-            <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
+            <p style={{ fontSize: '11px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: '2px' }}>
               {categoryTypeLabel(category.type)}
             </p>
           </div>
@@ -410,7 +473,7 @@ function CategoryList({ categories, description, title }: { categories: Category
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

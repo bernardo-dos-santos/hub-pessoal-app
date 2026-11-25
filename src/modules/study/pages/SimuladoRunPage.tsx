@@ -186,7 +186,7 @@ export function SimuladoRunPage() {
 
       {/* Enunciado */}
       <div className="py-3" style={{ borderBottom: '1px solid var(--hub-border)' }}>
-        <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--hub-accent)' }}>
+        <p className="text-[11px] font-semibold uppercase tracking-widest mb-2" style={{ color: 'var(--hub-accent)' }}>
           {question.subjectTag}
         </p>
         <MathText content={question.statement} className="text-sm leading-relaxed" style={{ color: 'var(--hub-text)' }} />
@@ -282,7 +282,7 @@ export function SimuladoRunPage() {
               key={q.id}
               onClick={() => setCurrentIdx(i)}
               title={`Questão ${i + 1}`}
-              className="h-6 w-6 rounded text-[10px] font-bold transition-opacity hover:opacity-70"
+              className="h-6 w-6 rounded text-[11px] font-bold transition-opacity hover:opacity-70"
               style={{
                 background: 'none',
                 border: 'none',

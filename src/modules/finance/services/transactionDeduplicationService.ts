@@ -138,14 +138,35 @@ export function findPossibleDuplicate(transaction: ImportTransaction, existingTr
   );
 }
 
+/**
+ * The same source writing the very same line on another day is another purchase
+ * (the daily coffee), not the same one posted later — the date and wording shift
+ * only between sources. Left as "possible duplicate", it was unchecked by default
+ * and silently not imported.
+ */
+function isRepeatPurchase(a: ImportTransaction, b: ExistingTransaction) {
+  return (
+    Boolean(a.source && b.source && a.source === b.source) &&
+    a.date !== b.date &&
+    normalizeDescription(a.description) === normalizeDescription(b.description)
+  );
+}
+
 export function markDuplicateStatus(
   importedTransactions: ImportTransaction[],
   existingTransactions: ExistingTransaction[],
 ): DuplicateCheckResult[] {
+  // Each saved transaction answers for one imported line: two identical rides
+  // already saved block two identical lines, but a third one is new.
+  const usedExisting = new Set<string>();
   return importedTransactions.map((transaction) => {
-    const exactDuplicate = findExactDuplicate(transaction, existingTransactions);
+    const exactDuplicate = findExactDuplicate(
+      transaction,
+      existingTransactions.filter((existing) => !usedExisting.has(existing.id)),
+    );
 
     if (exactDuplicate) {
+      usedExisting.add(exactDuplicate.id);
       return {
         transaction,
         duplicateStatus: 'exact_duplicate',
@@ -157,7 +178,7 @@ export function markDuplicateStatus(
 
     const possibleDuplicate = findPossibleDuplicate(transaction, existingTransactions);
 
-    if (possibleDuplicate) {
+    if (possibleDuplicate && !isRepeatPurchase(transaction, possibleDuplicate)) {
       return {
         transaction,
         duplicateStatus: 'possible_duplicate',

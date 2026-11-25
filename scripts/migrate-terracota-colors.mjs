@@ -32,7 +32,7 @@ const RULES = [
 
   [/rgba\(251,191,36,0\.(?:85|90|9)\)/g, 'var(--hub-warning)', 'warning/pending (0.85-0.90)'],
 
-  // Rodada 2 — decididas por contexto real de uso,
+  // Rodada 2 — decididas por contexto real de uso ,
   // não só pela faixa da tabela de tokens antiga.
   [/rgba\(238,238,242,0\.35\)/g, 'var(--hub-subtle)', 'texto muito apagado (empty states, notas) — 0.35'],
   [/rgba\(238,238,242,0\.(?:48|50)\)/g, 'var(--hub-muted)', 'texto secundário/label numérico — 0.48-0.50'],

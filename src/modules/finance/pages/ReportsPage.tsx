@@ -1,23 +1,27 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ModuleHeader, Card } from '../../../shared/ui';
 import { getFinanceTabs } from '../components/financeTabs';
 import { AiAnalysisSection } from '../components/AiAnalysisSection';
 import { MonthSelector } from '../components/MonthSelector';
-import { CategoryBarChart } from '../components/charts/CategoryBarChart';
 import { FinanceChartCard, FinanceChartEmptyState } from '../components/charts/FinanceChartCard';
 import { budgetService } from '../services/budgetService';
 import { BudgetUsageChart } from '../components/charts/BudgetUsageChart';
 import { financeSummaryService } from '../services/financeSummaryService';
 import { transactionService } from '../services/transactionService';
 import { formatCurrency, formatPercentage } from '../utils/financeFormatters';
+import { filterTransactionsBySelectedMonth } from '../utils/financeCalculations';
+import { isRealExpense } from '../../../shared/finance/financeTotals.js';
+import { aiConfig } from '../../../core/ai/aiConfig';
 import {
   formatMonthLabel,
+  getCurrentMonthKey,
   getMonthKeyFromQuery,
   withMonthAndCategoryParams,
   withMonthParam,
 } from '../utils/financePeriod';
 import { type MonthlyEvolutionPoint } from '../types/finance';
+import type { Transaction } from '../types/transaction';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -38,9 +42,9 @@ type TrendSeries = {
 };
 
 const TREND_SERIES: TrendSeries[] = [
-  { key: 'income',   label: 'Receitas',  color: '#34d399' },
-  { key: 'expenses', label: 'Despesas',  color: '#f87171' },
-  { key: 'balance',  label: 'Resultado', color: '#38bdf8', dash: '6 3' },
+  { key: 'income',   label: 'Receitas',  color: 'var(--hub-positive)' },
+  { key: 'expenses', label: 'Despesas',  color: 'var(--hub-negative)' },
+  { key: 'balance',  label: 'Resultado', color: 'var(--hub-accent)', dash: '6 3' },
 ];
 
 function smoothPath(pts: Array<{ x: number; y: number }>) {
@@ -68,14 +72,16 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
   const ch = H - PY * 2;
   const n = data.length;
 
-  const maxVal = useMemo(
-    () => Math.max(...data.flatMap((p) => [p.income, p.expenses, Math.abs(p.balance)]), 1),
-    [data],
-  );
+  // One scale for every series, zero line included: the result used to sit on
+  // its own -max..+max axis, so R$ 0 landed at the height of an income of max/2.
+  const { minVal, maxVal } = useMemo(() => {
+    const values = data.flatMap((p) => [p.income, p.expenses, p.balance]);
+    return { minVal: Math.min(0, ...values), maxVal: Math.max(1, ...values) };
+  }, [data]);
 
   function getX(i: number) { return PX + (i / Math.max(n - 1, 1)) * cw; }
-  function getY(v: number) { return PY + ch - (Math.max(v, 0) / maxVal) * ch; }
-  function getYSigned(v: number) { return PY + ch - ((v + maxVal) / (2 * maxVal)) * ch; }
+  function getY(v: number) { return PY + ch - ((v - minVal) / (maxVal - minVal)) * ch; }
+  const zeroY = getY(0);
 
   function toggleSeries(key: string) {
     setActiveSeries((prev) => {
@@ -96,15 +102,13 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
           <button
             key={s.key}
             type="button"
-            className={`flex items-center gap-1.5 text-xs font-medium transition-all ${
-              activeSeries.has(s.key)
-                ? 'opacity-100'
-                : 'opacity-30'
-            }`}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: s.color, padding: 0 }}
+            className="flex items-center gap-1.5 text-xs font-medium"
+            aria-pressed={activeSeries.has(s.key)}
+            // A hidden series dims through a token — opacity on text breaks contrast.
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: activeSeries.has(s.key) ? s.color : 'var(--hub-disabled)', padding: 0 }}
             onClick={() => toggleSeries(s.key)}
           >
-            <span className="h-0.5 w-4" style={{ background: s.color }} />
+            <span className="h-0.5 w-4" style={{ background: activeSeries.has(s.key) ? s.color : 'var(--hub-disabled)' }} />
             {s.label}
           </button>
         ))}
@@ -114,7 +118,6 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
         <svg
           viewBox={`0 0 ${W} ${H}`}
           className="w-full overflow-visible"
-          style={{ height: 200 }}
           aria-label="Tendência mensal"
         >
           {/* Grid */}
@@ -131,7 +134,7 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
           {TREND_SERIES.filter((s) => activeSeries.has(s.key)).map((s) => {
             const pts = data.map((p, i) => ({
               x: getX(i),
-              y: s.key === 'balance' ? getYSigned(p[s.key]) : getY(p[s.key]),
+              y: getY(p[s.key]),
             }));
             const path = smoothPath(pts);
 
@@ -139,7 +142,7 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
               <g key={s.key}>
                 {/* Área preenchida */}
                 <path
-                  d={`${path} L ${getX(n - 1)} ${PY + ch} L ${PX} ${PY + ch} Z`}
+                  d={`${path} L ${getX(n - 1)} ${zeroY} L ${PX} ${zeroY} Z`}
                   fill={s.color}
                   fillOpacity={0.06}
                 />
@@ -167,6 +170,10 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
             );
           })}
 
+          {minVal < 0 && (
+            <line x1={PX} y1={zeroY} x2={PX + cw} y2={zeroY} stroke="var(--hub-muted)" strokeWidth={1} strokeDasharray="4 3" />
+          )}
+
           {/* Linha de hover */}
           {hoverIdx !== null && (
             <line
@@ -176,19 +183,6 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
             />
           )}
 
-          {/* Rótulos do eixo X */}
-          {data.map((p, i) => (
-            <text
-              key={i}
-              x={getX(i)} y={H - 2}
-              textAnchor="middle"
-              fill={hoverIdx === i ? 'var(--hub-text)' : 'var(--hub-subtle)'}
-              fontSize={9}
-              className="capitalize select-none"
-            >
-              {p.label.slice(0, 3)}
-            </text>
-          ))}
 
           {/* Áreas de hover invisíveis */}
           {data.map((_, i) => {
@@ -200,10 +194,30 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
                 width={step} height={ch}
                 fill="transparent"
                 onMouseEnter={() => setHoverIdx(i)}
+                // A tap on a phone, where there is no hover.
+                onClick={() => setHoverIdx(hoverIdx === i ? null : i)}
               />
             );
           })}
         </svg>
+
+        <div className="relative" style={{ height: '16px' }} aria-hidden="true">
+          {data.map((p, i) => (
+            <span
+              key={i}
+              className="absolute top-0 select-none"
+              style={{
+                left: `${(getX(i) / W) * 100}%`,
+                transform: 'translateX(-50%)',
+                fontSize: '11px',
+                color: hoverIdx === i ? 'var(--hub-text)' : 'var(--hub-subtle)',
+              }}
+            >
+              {/* On a phone twelve labels don't fit: every other one. */}
+              <span className={i % 2 === 1 ? 'hidden sm:inline' : undefined}>{p.label.slice(0, 3).toLocaleLowerCase('pt-BR')}</span>
+            </span>
+          ))}
+        </div>
 
         {/* Tooltip */}
         {hoverData && hoverIdx !== null && (
@@ -214,7 +228,7 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
               transform: hoverIdx > n / 2 ? 'translateX(-105%)' : 'translateX(8px)',
               background: 'var(--hub-card)',
               border: '1px solid var(--hub-border-strong)',
-              borderRadius: '10px',
+              borderRadius: 'var(--hub-radius-card)',
               padding: '10px 12px',
               boxShadow: 'var(--hub-shadow-menu)',
             }}
@@ -244,6 +258,26 @@ function TrendLineChart({ data }: { data: MonthlyEvolutionPoint[] }) {
 // ─── Donut Chart (Categorias) ─────────────────────────────────────────────
 
 type DonutItem = { category: string; amount: number; transactionsCount: number; href?: string };
+
+/**
+ * Past seven categories the ring turns into slivers and the palette repeats —
+ * the rest becomes one "Outras" slice that opens the month's list.
+ */
+const DONUT_MAX_SLICES = 7;
+function groupDonutItems(items: DonutItem[], othersHref: string): DonutItem[] {
+  const sorted = [...items].sort((a, b) => b.amount - a.amount);
+  if (sorted.length <= DONUT_MAX_SLICES + 1) return sorted;
+  const rest = sorted.slice(DONUT_MAX_SLICES);
+  return [
+    ...sorted.slice(0, DONUT_MAX_SLICES),
+    {
+      category: `Outras (${rest.length})`,
+      amount: rest.reduce((sum, item) => sum + item.amount, 0),
+      transactionsCount: rest.reduce((sum, item) => sum + item.transactionsCount, 0),
+      href: othersHref,
+    },
+  ];
+}
 
 function DonutCategoryChart({
   items,
@@ -323,20 +357,20 @@ function DonutCategoryChart({
           })}
 
           {/* Centro */}
-          <text x={cx} y={cy - 8} textAnchor="middle" fill="var(--hub-text)" fontSize={11} fontWeight="bold">
+          <text x={cx} y={cy - 8} textAnchor="middle" fill="var(--hub-text)" fontSize={14} fontWeight={500}>
             {focusedItem
               ? formatCurrency(focusedItem.amount).replace('R$ ', '')
               : formatCurrency(total).replace('R$ ', '')}
           </text>
-          <text x={cx} y={cy + 6} textAnchor="middle" fill="var(--hub-subtle)" fontSize={7.5}>
+          <text x={cx} y={cy + 9} textAnchor="middle" fill="var(--hub-subtle)" fontSize={9.5}>
             {focusedItem
-              ? focusedItem.category.length > 14
-                ? focusedItem.category.slice(0, 14) + '…'
+              ? focusedItem.category.length > 12
+                ? focusedItem.category.slice(0, 12) + '…'
                 : focusedItem.category
               : 'total gastos'}
           </text>
           {focusedItem && (
-            <text x={cx} y={cy + 18} textAnchor="middle" fill="var(--hub-muted)" fontSize={7}>
+            <text x={cx} y={cy + 22} textAnchor="middle" fill="var(--hub-muted)" fontSize={9}>
               {formatPercentage((focusedItem.amount / total) * 100)}
             </text>
           )}
@@ -349,14 +383,15 @@ function DonutCategoryChart({
           const isActive = focused === seg.category;
           const color = CATEGORY_COLORS[seg.idx % CATEGORY_COLORS.length];
           return (
-            <a
+            <button
+              type="button"
               key={seg.category}
-              href={withMonthAndCategoryParams('/financeiro/transacoes', selectedMonth, seg.category)}
-              className="flex items-center gap-3 text-xs transition-opacity hover:opacity-70"
-              style={{ paddingBottom: '8px', marginBottom: '8px', borderBottom: '1px solid var(--hub-border)', opacity: isActive ? 1 : undefined }}
+              aria-pressed={isActive}
+              className="flex w-full items-center gap-3 text-left text-xs transition-opacity hover:opacity-70"
+              style={{ background: 'none', border: 'none', borderBottom: '1px solid var(--hub-border)', cursor: 'pointer', padding: '0 0 8px', marginBottom: '8px' }}
               onMouseEnter={() => setHovered(seg.category)}
               onMouseLeave={() => setHovered(null)}
-              onClick={(e) => { e.preventDefault(); setSelected(selected === seg.category ? null : seg.category); }}
+              onClick={() => setSelected(selected === seg.category ? null : seg.category)}
             >
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
@@ -371,17 +406,18 @@ function DonutCategoryChart({
               <span className="shrink-0" style={{ color: 'var(--hub-subtle)' }}>
                 {formatPercentage(seg.pct * 100)}
               </span>
-            </a>
+            </button>
           );
         })}
         {selected && (
-          <a
-            href={withMonthAndCategoryParams('/financeiro/transacoes', selectedMonth, selected)}
+          <Link
+            // The item's own link: 'Outras (3)' is not a category to filter by.
+            to={items.find((item) => item.category === selected)?.href ?? withMonthAndCategoryParams('/financeiro/gastos', selectedMonth, selected)}
             className="transition-opacity hover:opacity-70"
             style={{ display: 'block', textAlign: 'center', marginTop: '8px', fontSize: '11px', color: 'var(--hub-accent)' }}
           >
             Ver transações de {selected} →
-          </a>
+          </Link>
         )}
       </div>
     </div>
@@ -392,14 +428,12 @@ function DonutCategoryChart({
 
 const MAX_BAR_H = 100; // altura máxima da barra em px
 
-function WeekdayChart({ transactions }: { transactions: Array<{ date: string; amount: number; kind: string }> }) {
+function WeekdayChart({ transactions }: { transactions: Transaction[] }) {
   const [hovered, setHovered] = useState<number | null>(null);
 
-  // Inclui qualquer saída de dinheiro (exceto transferências internas)
-  // kind pode ser: 'expense', 'card_purchase', 'review' (pendente), etc.
-  const expenses = transactions.filter(
-    (t) => t.amount < 0 && t.kind !== 'card_payment' && t.kind !== 'card_payment_received',
-  );
+  // What "Gastei" counts (financeTotals): it used to take any money out, so
+  // paying the bill, a transfer or an investment showed up as a day's spending.
+  const expenses = useMemo(() => transactions.filter(isRealExpense), [transactions]);
 
   const byDay = useMemo(() => {
     const sums = Array(7).fill(0);
@@ -436,12 +470,13 @@ function WeekdayChart({ transactions }: { transactions: Array<{ date: string; am
               className="relative flex flex-1 cursor-pointer flex-col items-center"
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
+              onClick={() => setHovered((current) => (current === i ? null : i))}
             >
               {/* Tooltip */}
               {isActive && day.amount > 0 && (
                 <div
                   className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 -translate-x-1/2 whitespace-nowrap text-xs"
-                  style={{ background: 'var(--hub-card)', border: '1px solid var(--hub-border-strong)', borderRadius: '10px', padding: '6px 10px', boxShadow: 'var(--hub-shadow-menu)' }}
+                  style={{ background: 'var(--hub-card)', border: '1px solid var(--hub-border-strong)', borderRadius: 'var(--hub-radius-card)', padding: '6px 10px', boxShadow: 'var(--hub-shadow-menu)' }}
                 >
                   <p className="font-semibold" style={{ color: 'var(--hub-text)' }}>{day.label}</p>
                   <p className="mt-0.5 font-bold tabular-nums" style={{ color: 'var(--hub-accent)' }}>{formatCurrency(day.amount)}</p>
@@ -469,7 +504,7 @@ function WeekdayChart({ transactions }: { transactions: Array<{ date: string; am
         {byDay.map((day, i) => (
           <div
             key={day.label}
-            className="flex-1 text-center text-[10px] transition-colors"
+            className="flex-1 text-center text-[11px] transition-colors"
             style={{ color: hovered === i ? 'var(--hub-text-body)' : 'var(--hub-subtle)' }}
           >
             {day.label}
@@ -517,23 +552,23 @@ function SavingsRateChart({ data }: { data: MonthlyEvolutionPoint[] }) {
         <clipPath id="posClip">
           <rect x={0} y={0} width={W} height={zero} />
         </clipPath>
-        <path d={`${path} L ${getX(n-1)} ${H} L ${PX} ${H} Z`} fill="#34d399" fillOpacity={0.12} clipPath="url(#posClip)" />
+        <path d={`${path} L ${getX(n-1)} ${H} L ${PX} ${H} Z`} fill="var(--hub-positive)" fillOpacity={0.12} clipPath="url(#posClip)" />
 
         {/* Área negativa */}
         <clipPath id="negClip">
           <rect x={0} y={zero} width={W} height={H - zero} />
         </clipPath>
-        <path d={`${path} L ${getX(n-1)} ${H} L ${PX} ${H} Z`} fill="#f87171" fillOpacity={0.12} clipPath="url(#negClip)" />
+        <path d={`${path} L ${getX(n-1)} ${H} L ${PX} ${H} Z`} fill="var(--hub-negative)" fillOpacity={0.12} clipPath="url(#negClip)" />
 
         {/* Linha */}
-        <path d={path} fill="none" stroke="#38bdf8" strokeWidth={2} strokeLinecap="round" />
+        <path d={path} fill="none" stroke="var(--hub-accent)" strokeWidth={2} strokeLinecap="round" />
 
         {/* Pontos */}
         {pts.map((pt, i) => (
           <circle
             key={i}
             cx={pt.x} cy={pt.y} r={hoverIdx === i ? 4 : 2.5}
-            fill={points[i].rate >= 0 ? '#34d399' : '#f87171'}
+            fill={points[i].rate >= 0 ? 'var(--hub-positive)' : 'var(--hub-negative)'}
             className="transition-all"
           />
         ))}
@@ -557,14 +592,14 @@ function SavingsRateChart({ data }: { data: MonthlyEvolutionPoint[] }) {
             transform: hoverIdx > n / 2 ? 'translateX(-105%)' : 'translateX(4px)',
             background: 'var(--hub-card)',
             border: '1px solid var(--hub-border-strong)',
-            borderRadius: '10px',
+            borderRadius: 'var(--hub-radius-card)',
             padding: '8px 10px',
             boxShadow: 'var(--hub-shadow-menu)',
           }}
         >
           <p className="mb-1 capitalize font-semibold" style={{ color: 'var(--hub-text)' }}>{points[hoverIdx].label}</p>
           <p className="text-sm font-bold tabular-nums" style={{ color: points[hoverIdx].rate >= 0 ? 'var(--hub-positive)' : 'var(--hub-negative)' }}>
-            {points[hoverIdx].rate.toFixed(1)}% poupança
+            {points[hoverIdx].rate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}% poupança
           </p>
           <div className="mt-1 space-y-0.5" style={{ color: 'var(--hub-muted)' }}>
             <p>Rec: {formatCurrency(points[hoverIdx].income)}</p>
@@ -581,9 +616,9 @@ function SavingsRateChart({ data }: { data: MonthlyEvolutionPoint[] }) {
 export function ReportsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedMonth = getMonthKeyFromQuery(searchParams.get('month'));
-  const pendingReviewCount = transactionService.listRequiredReviewTransactions().length;
+  const pendingReviewCount = transactionService.listCurrentMonthReviewTransactions().length;
   const transactions = transactionService.listTransactions();
-  const monthlyTransactions = transactions.filter((t) => t.date.startsWith(selectedMonth));
+  const monthlyTransactions = filterTransactionsBySelectedMonth(transactions, selectedMonth);
   const monthlyEvolution12 = financeSummaryService.getMonthlyEvolution(selectedMonth, 12);
   const monthlyComparison = financeSummaryService.getMonthlyComparison(selectedMonth);
   const categoryComparison = financeSummaryService.getMonthlyCategoryComparison(selectedMonth);
@@ -625,14 +660,23 @@ export function ReportsPage() {
     <div>
       <ModuleHeader
         eyebrow="Módulo · Financeiro"
-        title="Relatórios"
+        title="Relatório"
         tabs={getFinanceTabs(pendingReviewCount)}
        
         right={<MonthSelector value={selectedMonth} onChange={changeMonth} />}
       />
 
       <p style={{ fontSize: '11px', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
-        Gráficos interativos — passe o mouse para explorar. Reembolsos pareados ficam fora dos cálculos.
+        Toque ou passe o mouse nos gráficos para ver os valores. Reembolsos pareados ficam fora dos cálculos.
+        {/* The AI summary of a closed month used to be reachable only from the Home. */}
+        {selectedMonth < getCurrentMonthKey() ? (
+          <>
+            {' '}
+            <Link to={`/financeiro/resumo/${selectedMonth}`} className="font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+              Resumo de {formatMonthLabel(selectedMonth)} →
+            </Link>
+          </>
+        ) : null}
       </p>
 
       {/* KPIs do mês */}
@@ -640,7 +684,7 @@ export function ReportsPage() {
         <div className="flex flex-wrap" style={{ gap: '28px 40px' }}>
           <KpiInline
             label="Taxa de poupança"
-            value={`${savingsRate.toFixed(1)}%`}
+            value={`${savingsRate.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`}
             detail={savingsRate >= 20 ? 'Acima de 20% ✓' : savingsRate >= 0 ? 'Abaixo de 20%' : 'Mês no negativo'}
             tone={savingsRate >= 20 ? 'positive' : savingsRate >= 0 ? 'neutral' : 'negative'}
           />
@@ -684,17 +728,20 @@ export function ReportsPage() {
       </Card>
 
       {/* Análise IA */}
+      {aiConfig.isReady() ? (
       <AiAnalysisSection
+        key={selectedMonth}
         selectedMonth={selectedMonth}
         summary={summary}
         categoryComparison={categoryComparison}
         budgetExceededCount={budgetUsageItems.filter((b) => b.status === 'exceeded').length}
       />
+      ) : null}
 
       {/* Tendência — Linha SVG (12 meses) */}
       <FinanceChartCard
         title="Tendência — 12 meses"
-        description="Clique na legenda para mostrar/ocultar séries. Passe o mouse sobre o gráfico para ver detalhes."
+        description="Toque na legenda para mostrar ou ocultar séries, e no gráfico para ver os valores do mês."
       >
         {monthlyEvolution12.length === 0 ? (
           <FinanceChartEmptyState>Sem dados históricos para exibir.</FinanceChartEmptyState>
@@ -718,41 +765,31 @@ export function ReportsPage() {
       {/* Distribuição por categoria (Donut interativo) */}
       <FinanceChartCard
         title="Distribuição por categoria"
-        description="Clique em um segmento ou categoria para ver as transações."
+        description="Toque numa fatia ou categoria para destacá-la e abrir os lançamentos."
       >
         {categoryExpenses.length === 0 ? (
           <FinanceChartEmptyState>Sem gastos categorizados neste mês.</FinanceChartEmptyState>
         ) : (
           <DonutCategoryChart
-            items={categoryExpenses.map((item) => ({
-              category: item.category,
-              amount: item.amount,
-              transactionsCount: item.transactionsCount,
-              href: withMonthAndCategoryParams('/financeiro/transacoes', selectedMonth, item.category),
-            }))}
+            items={groupDonutItems(
+              categoryExpenses.map((item) => ({
+                category: item.category,
+                amount: item.amount,
+                transactionsCount: item.transactionsCount,
+                href: withMonthAndCategoryParams('/financeiro/gastos', selectedMonth, item.category),
+              })),
+              withMonthAndCategoryParams('/financeiro/gastos', selectedMonth),
+            )}
             selectedMonth={selectedMonth}
           />
         )}
       </FinanceChartCard>
 
-      <FinanceChartCard
-        title="Categorias do mês"
-        description="Gastos líquidos por categoria."
-      >
-        <CategoryBarChart
-          items={categoryExpenses.map((item) => ({
-            amount: item.amount,
-            category: item.category,
-            href: withMonthAndCategoryParams('/financeiro/transacoes', selectedMonth, item.category),
-            transactionsCount: item.transactionsCount,
-          }))}
-        />
-      </FinanceChartCard>
 
       {/* Gastos por dia da semana */}
       <FinanceChartCard
         title="Gastos por dia da semana"
-        description={`Despesas e compras de cartão em ${formatMonthLabel(selectedMonth)} agrupadas por dia.`}
+        description={`O que você gastou em ${formatMonthLabel(selectedMonth)}, por dia da semana. Toque numa barra para ver o valor.`}
       >
         <WeekdayChart transactions={monthlyTransactions} />
       </FinanceChartCard>
@@ -760,11 +797,14 @@ export function ReportsPage() {
       {/* Comparação com mês anterior */}
       <Card className="mb-5">
         <div style={{ marginBottom: '20px' }}>
-          <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
+          <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>
             Comparação com mês anterior
           </p>
           <p style={{ fontSize: '12px', color: 'var(--hub-subtle)' }}>
             {formatMonthLabel(monthlyComparison.currentMonth)} vs {formatMonthLabel(monthlyComparison.previousMonth)}
+            {monthlyComparison.previousUntil
+              ? ` até o mesmo ponto (${monthlyComparison.previousUntil.slice(8, 10)}/${monthlyComparison.previousUntil.slice(5, 7)})`
+              : ''}
           </p>
         </div>
         <div className="grid gap-0 sm:grid-cols-2 lg:grid-cols-4">
@@ -777,7 +817,7 @@ export function ReportsPage() {
 
       {/* Categorias que mais mudaram */}
       <Card className="mb-5">
-        <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}>
+        <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}>
           Categorias que mais mudaram
         </p>
         <div>
@@ -801,9 +841,9 @@ export function ReportsPage() {
           title="Orçamentos do mês"
           description="Uso dos limites ativos. Clique em Abrir orçamentos para gerenciar."
           action={
-            <a className="text-xs font-semibold transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }} href={withMonthParam('/financeiro/orcamentos', selectedMonth)}>
+            <Link className="text-xs font-semibold transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }} to={withMonthParam('/financeiro/configurar/orcamentos', selectedMonth)}>
               Gerenciar →
-            </a>
+            </Link>
           }
         >
           <BudgetUsageChart items={budgetUsageItems} />
@@ -834,10 +874,10 @@ function KpiInline({
 
   return (
     <div>
-      <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+      <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
         {label}
       </p>
-      <p className="tabular-nums" style={{ fontSize: '20px', fontWeight: 300, letterSpacing: '-0.02em', color: valueColor }}>
+      <p className="tabular-nums" style={{ fontSize: '20px', fontWeight: 400, letterSpacing: '-0.02em', color: valueColor }}>
         {value}
       </p>
       <p style={{ fontSize: '11px', color: 'var(--hub-subtle)', marginTop: '2px' }}>{detail}</p>
@@ -857,10 +897,10 @@ function ComparisonRow({ label, delta, invertColor }: { label: string; delta: De
 
   return (
     <div style={{ paddingBottom: '14px', marginBottom: '14px', borderBottom: '1px solid var(--hub-border)' }}>
-      <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
+      <p style={{ fontSize: '11px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '4px' }}>
         {label}
       </p>
-      <p className="tabular-nums" style={{ fontSize: '18px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+      <p className="tabular-nums" style={{ fontSize: '18px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
         {formatCurrency(delta.currentValue)}
       </p>
       <p style={{ fontSize: '11px', color: diffColor, marginTop: '2px' }}>

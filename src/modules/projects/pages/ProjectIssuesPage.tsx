@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, EditableText, Eyebrow, ModuleHeader, Select } from '../../../shared/ui';
+import { Card, EditableText, Eyebrow, ModuleHeader, Select, useConfirm } from '../../../shared/ui';
 import { getProjectTabs, projectEyebrow } from '../components/projectTabs';
 import { frontService } from '../services/frontService';
 import { projectIssueService } from '../services/projectIssueService';
@@ -19,6 +19,7 @@ const KIND_COLOR: Record<IssueKind, string> = {
 };
 
 export function ProjectIssuesPage() {
+  const confirmAction = useConfirm();
   const { projectId = '' } = useParams();
   const [, bump] = useState(0);
   const refresh = () => bump((n) => n + 1);
@@ -69,8 +70,8 @@ export function ProjectIssuesPage() {
     refresh();
   }
 
-  function promote(issue: ProjectIssue) {
-    if (!confirm(`Transformar em tarefa?\n\n"${issue.title}"\n\nA partir daí ela passa a contar no progresso do projeto.`)) return;
+  async function promote(issue: ProjectIssue) {
+    if (!(await confirmAction(`Transformar em tarefa?\n\n"${issue.title}"\n\nA partir daí ela passa a contar no progresso do projeto.`, { tone: 'neutral', confirmLabel: 'Transformar' }))) return;
     projectIssueService.promoteToTask(issue.id);
     refresh();
   }
@@ -80,8 +81,8 @@ export function ProjectIssuesPage() {
     refresh();
   }
 
-  function discard(issue: ProjectIssue) {
-    if (!confirm(`Descartar "${issue.title}"?`)) return;
+  async function discard(issue: ProjectIssue) {
+    if (!(await confirmAction(`Descartar "${issue.title}"?`, { confirmLabel: 'Descartar' }))) return;
     projectIssueService.remove(issue.id);
     refresh();
   }
@@ -113,7 +114,7 @@ export function ProjectIssuesPage() {
         />
         <div className="mt-4 grid gap-4 sm:grid-cols-3">
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Tipo</span>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Tipo</span>
             <Select className="w-full" value={kind} onChange={(value) => setKind(value as IssueKind)}>
               <Select.Option value="bug">Bug</Select.Option>
               <Select.Option value="improvement">Melhoria</Select.Option>
@@ -121,7 +122,7 @@ export function ProjectIssuesPage() {
             </Select>
           </label>
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Severidade</span>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Severidade</span>
             <Select className="w-full" value={severity} onChange={(value) => setSeverity(value as IssueSeverity)}>
               <Select.Option value="high">Alta</Select.Option>
               <Select.Option value="medium">Média</Select.Option>
@@ -129,7 +130,7 @@ export function ProjectIssuesPage() {
             </Select>
           </label>
           <label>
-            <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Frente</span>
+            <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>Frente</span>
             <Select className="w-full" value={frontId} onChange={setFrontId}>
               <Select.Option value="">Sem frente</Select.Option>
               {fronts.map((f) => <Select.Option key={f.id} value={f.id}>{f.name}</Select.Option>)}
@@ -175,9 +176,9 @@ export function ProjectIssuesPage() {
               <div
                 key={issue.id}
                 className="flex items-baseline gap-3 py-2.5"
-                style={{ borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--hub-border)', opacity: closed ? 0.55 : 1 }}
+                style={{ borderBottom: i === shown.length - 1 ? 'none' : '1px solid var(--hub-border)' }}
               >
-                <span className="shrink-0 text-xs font-medium" style={{ color: KIND_COLOR[issue.kind] }}>
+                <span className="shrink-0 text-xs font-medium" style={{ color: closed ? 'var(--hub-subtle)' : KIND_COLOR[issue.kind] }}>
                   {ISSUE_KIND_LABEL[issue.kind]}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -188,7 +189,7 @@ export function ProjectIssuesPage() {
                     onSave={(value) => rename(issue, value)}
                     ariaLabel={`Renomear ${ISSUE_KIND_LABEL[issue.kind].toLowerCase()} ${issue.title}`}
                   >
-                    <span className="text-sm" style={{ color: 'var(--hub-text-body)', textDecoration: issue.status === 'done' ? 'line-through' : 'none' }}>
+                    <span className="text-sm" style={{ color: closed ? 'var(--hub-subtle)' : 'var(--hub-text-body)', textDecoration: issue.status === 'done' ? 'line-through' : 'none' }}>
                       {issue.title}
                     </span>
                   </EditableText>

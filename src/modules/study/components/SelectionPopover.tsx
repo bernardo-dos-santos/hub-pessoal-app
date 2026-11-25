@@ -74,7 +74,7 @@ export function SelectionPopover({ containerRef, onAction, isLoading = false }: 
         transform: 'translateX(-50%)',
         background: 'var(--hub-card)',
         border: '1px solid var(--hub-border-strong)',
-        borderRadius: '10px',
+        borderRadius: 'var(--hub-radius-card)',
         boxShadow: 'var(--hub-shadow-menu)',
       }}
       className="fixed z-50 flex items-center gap-1 px-2 py-1.5"

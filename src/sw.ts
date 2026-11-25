@@ -36,7 +36,7 @@ self.addEventListener('push', (event: PushEvent) => {
   try {
     payload = event.data?.json() ?? {};
   } catch {
-    payload = { title: 'Hub Pessoal', body: event.data?.text() ?? '' };
+    payload = { title: 'Olimpo', body: event.data?.text() ?? '' };
   }
 
   const options: NotificationOptions = {
@@ -48,7 +48,7 @@ self.addEventListener('push', (event: PushEvent) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? 'Hub Pessoal', options),
+    self.registration.showNotification(payload.title ?? 'Olimpo', options),
   );
 });
 

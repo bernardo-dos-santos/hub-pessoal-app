@@ -18,7 +18,7 @@ export type ExpansionCategory = string;
  * vez do slug cru. Não é lista de opções: nada novo deve ser adicionado aqui.
  */
 const LEGACY_CATEGORY_LABEL: Record<string, string> = {
-  jarvis: 'Jarvis & Automação',
+  jarvis: 'Íris & Automação',
   concurso: 'Preparação para concurso',
   gamificacao: 'Gamificação',
   seguranca: 'Segurança & Rede',

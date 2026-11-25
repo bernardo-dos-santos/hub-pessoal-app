@@ -146,13 +146,13 @@ export function FlashcardRunPage() {
         >
           {!flipped ? (
             <>
-              <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Frente</p>
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Frente</p>
               <MathText content={card.front} className="text-base font-medium leading-relaxed" style={{ color: 'var(--hub-text)' }} />
               <p className="mt-6 text-xs" style={{ color: 'var(--hub-disabled)' }}>Toque para revelar</p>
             </>
           ) : (
             <>
-              <p className="mb-4 text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-accent)' }}>Verso</p>
+              <p className="mb-4 text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-accent)' }}>Verso</p>
               <MathText content={card.front} className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--hub-subtle)' }} />
               <div className="my-2 w-full" style={{ borderTop: '1px solid var(--hub-border)' }} />
               <MathText content={card.back} className="text-base font-medium leading-relaxed" style={{ color: 'var(--hub-text)' }} />

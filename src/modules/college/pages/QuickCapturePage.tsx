@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, DateInput } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { assessmentService } from '../services/assessmentService';
 import { subjectService } from '../services/subjectService';
@@ -195,7 +195,7 @@ export function QuickCapturePage() {
                 {recentlyCreatedItems.map((item, i) => (
                   <div key={`${item.type}-${item.id}`} className="py-2" style={{ borderBottom: i === recentlyCreatedItems.length - 1 ? 'none' : '1px solid var(--hub-border)' }}>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: item.type === 'assessment' ? 'var(--hub-accent)' : 'var(--hub-positive)' }}>
+                      <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: item.type === 'assessment' ? 'var(--hub-accent)' : 'var(--hub-positive)' }}>
                         {item.type === 'assessment' ? 'Avaliacao' : 'Tarefa'}
                       </span>
                       <strong className="text-sm" style={{ color: 'var(--hub-text)' }}>{item.title}</strong>
@@ -264,10 +264,10 @@ export function QuickCapturePage() {
                   >
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: draftItem.type === 'assessment' ? 'var(--hub-accent)' : 'var(--hub-positive)' }}>
+                        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: draftItem.type === 'assessment' ? 'var(--hub-accent)' : 'var(--hub-positive)' }}>
                           {draftItem.type === 'assessment' ? 'Avaliacao' : 'Tarefa'}
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: statusColor[status] }}>
+                        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: statusColor[status] }}>
                           {statusLabel[status]}
                         </span>
                       </div>
@@ -305,7 +305,7 @@ export function QuickCapturePage() {
                         <input className={inputClass} value={draftItem.title} onChange={(event) => updateDraft(draftItem.id, { title: event.target.value })} />
                       </Field>
                       <Field label="Data">
-                        <input className={inputClass} type="date" value={draftItem.date} onChange={(event) => updateDraft(draftItem.id, { date: event.target.value })} />
+                        <DateInput className="w-full" value={draftItem.date} onChange={(date) => updateDraft(draftItem.id, { date })} ariaLabel="Data" />
                       </Field>
                       {draftItem.type === 'assessment' ? (
                         <>
@@ -352,7 +352,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}
@@ -407,7 +407,7 @@ function ActionLink({ label, to }: { label: string; to: string }) {
 function SummaryChip({ color, label, value, last = false }: { color: string; label: string; value: number; last?: boolean }) {
   return (
     <div className="py-2" style={{ borderBottom: last ? 'none' : '1px solid var(--hub-border)' }}>
-      <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>{label}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>{label}</p>
       <p className="mt-1 text-lg font-semibold" style={{ color }}>{value}</p>
     </div>
   );

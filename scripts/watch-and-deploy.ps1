@@ -1,7 +1,7 @@
 # scripts/watch-and-deploy.ps1 — auto-deploy do PC dedicado.
 # Roda a cada 5 min via Task Scheduler (tarefa HubPessoal-AutoDeploy). Verifica
 # se há commits novos em origin/master; se houver, atualiza, rebuilda e
-# reinicia o PM2. Silencioso quando não há nada novo.
+# reinicia a tarefa HubServer. Silencioso quando não há nada novo.
 #
 # Configurar a tarefa (rodar uma vez, no próprio PC dedicado):
 #   powershell -File scripts\setup-autodeploy-task.ps1
@@ -55,6 +55,34 @@ function Invoke-Step([string]$label, [scriptblock]$block) {
 # processo (falha sempre, mesmo com o servidor rodando).
 $env:PM2_HOME = 'C:\ProgramData\pm2'
 
+# Restarts the whole HubServer task (pm2-runtime + the app), never
+# "pm2 restart". On Windows, PM2 7 gets the old process's exit only after the
+# new one is up, takes it for a crash and starts a second one: on 2026-11-16 an
+# orphan kept serving the port while the one PM2 tracked sat "online" and dead.
+# Stopping the task doesn't take its node children with it, hence the kill.
+function Restart-HubServer {
+  $hubNodes = {
+    Get-CimInstance Win32_Process -Filter "Name='node.exe'" |
+      Where-Object { $_.CommandLine -like '*pm2-runtime*' -or $_.CommandLine -like '*ProcessContainerFork*' }
+  }
+  Stop-ScheduledTask -TaskName 'HubServer'
+  Start-Sleep -Seconds 2
+  & $hubNodes | Where-Object { $_.CommandLine -like '*pm2-runtime*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Milliseconds 700
+  & $hubNodes | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  Start-Sleep -Seconds 2
+  Start-ScheduledTask -TaskName 'HubServer'
+
+  $deadline = (Get-Date).AddMinutes(10)
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Seconds 5
+    try {
+      if ((Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3001/api/health' -TimeoutSec 5).StatusCode -eq 200) { return }
+    } catch {}
+  }
+  throw 'servidor nao respondeu em 10 min depois do reinicio'
+}
+
 try {
   Invoke-Step 'git fetch' { git fetch origin master --quiet }
   $local = git rev-parse HEAD
@@ -67,12 +95,7 @@ try {
   Invoke-Step 'git pull' { git pull origin master --no-edit }
   Invoke-Step 'npm install' { npm install }
   Invoke-Step 'npm run build' { npm run build }
-  # startOrRestart (nao "restart hub-server"): idempotente, registra o processo
-  # do zero se ele nao existir em vez de falhar. "restart" exige que o processo
-  # ja esteja cadastrado no PM2 — se ele caiu por qualquer motivo entre um ciclo
-  # e outro, "restart" fica preso falhando pra sempre; startOrRestart se
-  # recupera sozinho no proximo ciclo.
-  Invoke-Step 'pm2 startOrRestart' { pm2 startOrRestart ecosystem.config.cjs }
+  Restart-HubServer
 
   Write-Log "Deploy concluido: $remote"
 } catch {

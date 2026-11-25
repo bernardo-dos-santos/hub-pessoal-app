@@ -24,7 +24,7 @@ export const PROJECT_KIND_LABEL: Record<ProjectKind, string> = {
   code: 'Código',
   personal: 'Casa e vida pessoal',
   creative: 'Criativo',
-  study: 'Estudo e concurso',
+  study: 'Estudo',
   health: 'Saúde e treino',
   other: 'Outro',
 };

@@ -95,14 +95,30 @@ export function removePaymentIntermediaries(text: string) {
   }, normalizeMoneyDescription(text));
 }
 
+/** "Loja X - Parcela 2/10", "Loja X (2/10)": the installment is not part of the name. */
+const INSTALLMENT_SEGMENT = /^parcela\s+\d+\s*\/\s*\d+$/i;
+const INSTALLMENT_SUFFIX = /\s*\(\d+\s*\/\s*\d+\)\s*$/;
+
+const GENERIC_MERCHANT = /^(pix|ted|doc|transfer[eê]ncia|pagamento|compra|boleto|dep[oó]sito|saque|d[eé]bito|cr[eé]dito)\b/i;
+
+/** A description that names a kind of payment, not who was paid. */
+export function isGenericMerchant(merchant: string) {
+  const text = merchant.trim();
+  return text.length < 3 || GENERIC_MERCHANT.test(text);
+}
+
 export function extractMerchant(description: string) {
+  // A rule made from "Magalu - Parcela 2/10" used to be "parcela 2 10" — and
+  // matched the 2nd installment of every store.
   const parts = String(description || '')
+    .replace(INSTALLMENT_SUFFIX, '')
     .split(' - ')
+    .filter((part) => !INSTALLMENT_SEGMENT.test(part.trim()))
     .map((part) => part.trim())
     .filter(Boolean);
 
   if (parts.length < 2) {
-    return String(description || '').trim();
+    return parts[0] ?? String(description || '').trim();
   }
 
   const operation = normalizeMoneyDescription(parts[0]);

@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { ModuleHeader, Card, Select } from '../../../shared/ui';
+import { Link, useSearchParams } from 'react-router-dom';
+import { ModuleHeader, Card, Select, DateInput } from '../../../shared/ui';
 import { COLLEGE_TABS } from '../components/collegeTabs';
 import { EmptyCollegeState } from '../components/EmptyCollegeState';
 import { subjectService } from '../services/subjectService';
@@ -123,7 +123,16 @@ export function TasksPage() {
 
   return (
     <div>
-      <ModuleHeader eyebrow="Módulo · Faculdade" title="Tarefas e trabalhos" tabs={COLLEGE_TABS} />
+      <ModuleHeader
+        eyebrow="Módulo · Faculdade"
+        title="Tarefas e trabalhos"
+        tabs={COLLEGE_TABS}
+        right={(
+          <Link to="/faculdade/tarefas/captura" className="text-sm font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+            Captura rápida →
+          </Link>
+        )}
+      />
 
       <p className="mb-6 text-sm" style={{ color: 'var(--hub-muted)', maxWidth: '640px' }}>
         Prazos manuais com status simples e atraso detectado automaticamente.
@@ -154,7 +163,7 @@ export function TasksPage() {
             </Field>
             <div className="grid gap-5 sm:grid-cols-3">
               <Field label="Prazo">
-                <input className={inputClass} type="date" value={draft.dueDate} onChange={(event) => setDraft({ ...draft, dueDate: event.target.value })} />
+                <DateInput className="w-full" value={draft.dueDate} onChange={(dueDate) => setDraft({ ...draft, dueDate })} ariaLabel="Prazo da tarefa" />
               </Field>
               <Field label="Prioridade">
                 <Select className={selectClass} value={draft.priority} onChange={(value) => setDraft({ ...draft, priority: value as CollegeTask['priority'] })}>
@@ -195,7 +204,7 @@ export function TasksPage() {
         <div className="grid gap-5">
           <Card>
             <div className="grid gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+              <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
                 Status
               </span>
               <div className="flex flex-wrap gap-1">
@@ -226,7 +235,7 @@ export function TasksPage() {
                 </Select>
               </Field>
               <div className="grid gap-2">
-                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Origem</span>
+                <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Origem</span>
                 <div className="flex flex-wrap gap-1">
                   {sourceFilters.map((filter) => (
                     <button
@@ -325,7 +334,7 @@ const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-po
 function Field({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="space-y-2">
-      <span className="block text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
+      <span className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>
         {label}
       </span>
       {children}

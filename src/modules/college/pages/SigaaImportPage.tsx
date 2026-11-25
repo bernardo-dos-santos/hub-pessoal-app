@@ -62,22 +62,18 @@ export function SigaaImportPage() {
         <ol className="mt-2 grid gap-2">
           <li className="text-xs leading-5" style={{ color: 'var(--hub-muted)' }}>
             <span className="font-semibold" style={{ color: 'var(--hub-text)' }}>1.</span>{' '}
-            Copie{' '}
-            <code className="text-xs" style={{ color: 'var(--hub-text-body)' }}>scripts/config/sigaa-config.example.json</code>
-            {' '}para{' '}
-            <code className="text-xs" style={{ color: 'var(--hub-text-body)' }}>sigaa-config.json</code>
-            {' '}e preencha seu login e senha.
+            A busca é automática: conecte o SIGAA em Configurações → Conexões e o servidor busca uma vez por dia —
+            o resultado entra sozinho na Faculdade.
           </li>
           <li className="text-xs leading-5" style={{ color: 'var(--hub-muted)' }}>
             <span className="font-semibold" style={{ color: 'var(--hub-text)' }}>2.</span>{' '}
-            Execute no terminal:{' '}
-            <code className="text-xs" style={{ color: 'var(--hub-text-body)' }}>node scripts/sync/sigaa-sync.js</code>
+            Esta tela é só para importar à mão um arquivo exportado antes.
           </li>
           <li className="text-xs leading-5" style={{ color: 'var(--hub-muted)' }}>
             <span className="font-semibold" style={{ color: 'var(--hub-text)' }}>3.</span>{' '}
-            Selecione o arquivo{' '}
+            Para isso, selecione o arquivo{' '}
             <code className="text-xs" style={{ color: 'var(--hub-text-body)' }}>sigaa-export.json</code>
-            {' '}gerado abaixo.
+            {' '}no campo abaixo.
           </li>
         </ol>
       </Card>

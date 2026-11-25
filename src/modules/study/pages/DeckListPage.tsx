@@ -6,8 +6,6 @@ import { questionService } from '../services/questionService';
 import { subjectService } from '../../college/services/subjectService';
 import { studyProgressService } from '../services/studyProgressService';
 import { isDue } from '../services/spacedRepetitionService';
-import { CBMSC_SUBJECTS } from '../data/cbmscSubjects';
-import { ABIN_SUBJECTS } from '../data/abinSubjects';
 import type { Deck, Flashcard } from '../types/flashcard';
 import { getStudyTabs } from '../components/studyTabs';
 import { errorNotebookService } from '../services/errorNotebookService';
@@ -54,7 +52,7 @@ function DeckItem({ deck, onDeleted }: { deck: Deck; onDeleted: () => void }) {
           <p className="truncate text-sm font-medium" style={{ color: 'var(--hub-text)' }}>{deck.name}</p>
           <div className="mt-0.5 flex items-center gap-2">
             {deck.subjectTag && (
-              <span className="text-[10px] font-medium" style={{ color: 'var(--hub-accent)' }}>
+              <span className="text-[11px] font-medium" style={{ color: 'var(--hub-accent)' }}>
                 {deck.subjectTag}
               </span>
             )}
@@ -141,7 +139,7 @@ function DeckItem({ deck, onDeleted }: { deck: Deck; onDeleted: () => void }) {
 
           {/* Formulário nova carta */}
           <div className="space-y-3" style={{ borderTop: '1px solid var(--hub-border)', paddingTop: '12px' }}>
-            <p className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Nova carta</p>
+            <p className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--hub-subtle)' }}>Nova carta</p>
             <textarea
               rows={2}
               placeholder="Frente (conceito, pergunta…)"
@@ -288,21 +286,8 @@ export function DeckListPage() {
             />
             <Select value={deckTag} onChange={setDeckTag} className={selectClass}>
               <Select.Option value="">Sem matéria</Select.Option>
-              {collegeSubjects.length > 0 && (
-                <>
-                  <Select.Option key="group-college" value="__group_college__" disabled>— Faculdade —</Select.Option>
-                  {collegeSubjects.map((s) => (
-                    <Select.Option key={s.id} value={s.name}>{s.name}</Select.Option>
-                  ))}
-                </>
-              )}
-              <Select.Option key="group-cbmsc" value="__group_cbmsc__" disabled>— Concurso (CBMSC) —</Select.Option>
-              {CBMSC_SUBJECTS.map((s) => (
-                <Select.Option key={s} value={s}>{s}</Select.Option>
-              ))}
-              <Select.Option key="group-abin" value="__group_abin__" disabled>— Concurso (ABIN) —</Select.Option>
-              {ABIN_SUBJECTS.map((s) => (
-                <Select.Option key={`abin-${s}`} value={s}>{s}</Select.Option>
+              {collegeSubjects.map((s) => (
+                <Select.Option key={s.id} value={s.name}>{s.name}</Select.Option>
               ))}
             </Select>
             <button

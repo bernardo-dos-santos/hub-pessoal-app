@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { backupService, type HubBackup } from '../../core/backup/backupService';
 import { isApiCachePrimed } from '../../core/storage/apiStorageAdapter';
 import { BackButton } from '../../shared/ui';
+import { localDayKey } from '../../shared/dates/localDay';
 
 type ImportState = 'idle' | 'confirm' | 'success' | 'error';
 
@@ -16,7 +17,6 @@ const MODULE_LABEL: Record<string, string> = {
   finance:  'Financeiro',
   fitness:  'Treino',
   college:  'Faculdade',
-  concurso: 'Concurso CBSC',
   rpg:      'RPG',
 };
 
@@ -38,7 +38,7 @@ export function BackupPage() {
       try {
         const parsed = JSON.parse(ev.target?.result as string);
         if (!backupService.validateBackup(parsed)) {
-          setErrorMsg('Arquivo inválido — não é um backup do Hub Pessoal.');
+          setErrorMsg('Arquivo inválido — não é um backup do Olimpo.');
           setImporting('error');
           return;
         }
@@ -63,7 +63,7 @@ export function BackupPage() {
           const json = JSON.stringify(serverBackup, null, 2);
           const blob = new Blob([json], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
-          const date = new Date().toISOString().split('T')[0];
+          const date = localDayKey();
           const a = document.createElement('a');
           a.href = url;
           a.download = `hub-pessoal-backup-${date}.json`;
@@ -106,7 +106,7 @@ export function BackupPage() {
 
       {/* Resumo do que será exportado */}
       <div style={{ borderBottom: '1px solid var(--hub-border)', paddingBottom: '24px' }}>
-        <h2 className="mb-3 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+        <h2 className="mb-3 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
           O que será exportado
         </h2>
         <div className="grid grid-cols-2 gap-x-6 gap-y-2 sm:grid-cols-3">
@@ -127,7 +127,7 @@ export function BackupPage() {
 
       {/* Exportar */}
       <div>
-        <h2 className="mb-2 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>Exportar</h2>
+        <h2 className="mb-2 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>Exportar</h2>
         <button
           onClick={handleDownload}
           disabled={summary.keys === 0 || exporting}
@@ -145,7 +145,7 @@ export function BackupPage() {
 
       {/* Importar */}
       <div>
-        <h2 className="mb-2 font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>Restaurar</h2>
+        <h2 className="mb-2 font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>Restaurar</h2>
 
         {importing === 'idle' && (
           <>
@@ -197,14 +197,14 @@ export function BackupPage() {
             <p className="text-sm font-medium" style={{ color: 'var(--hub-positive)' }}>
               ✓ Restaurado com sucesso — {importResult.restored} chaves
             </p>
-            <p className="mt-1 text-xs" style={{ color: 'color-mix(in srgb, var(--hub-positive) 70%, transparent)' }}>Recarregando o app…</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--hub-positive)' }}>Recarregando o app…</p>
           </div>
         )}
 
         {importing === 'error' && (
           <div className="space-y-2 py-2">
             <p className="text-sm font-medium" style={{ color: 'var(--hub-negative)' }}>Erro ao importar</p>
-            <p className="text-xs" style={{ color: 'color-mix(in srgb, var(--hub-negative) 80%, transparent)' }}>{errorMsg}</p>
+            <p className="text-xs" style={{ color: 'var(--hub-negative)' }}>{errorMsg}</p>
             <button
               onClick={() => setImporting('idle')}
               className="text-xs transition-opacity hover:opacity-60"

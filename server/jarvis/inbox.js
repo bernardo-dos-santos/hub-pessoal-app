@@ -30,8 +30,9 @@ export function genInboxId() {
  * @param {string} [input.body]
  * @param {object} [input.undo]        Payload de desfazer (só em action_taken)
  * @param {string[]} [input.relatedKeys]
+ * @param {boolean} [input.pushed]      Also went out as a push (notify_bernardo) — counts toward the daily push cap
  */
-export function addInboxItem({ kind, title, body, undo, relatedKeys }) {
+export function addInboxItem({ kind, title, body, undo, relatedKeys, pushed }) {
   const items = kv(KEY) ?? [];
   const item = {
     id: genInboxId(),
@@ -42,6 +43,7 @@ export function addInboxItem({ kind, title, body, undo, relatedKeys }) {
     readAt: null,
     undo: undo ?? undefined,
     relatedKeys: relatedKeys ?? undefined,
+    pushed: pushed || undefined,
   };
   kvStore.set(KEY, JSON.stringify([item, ...items].slice(0, MAX_INBOX)));
   return item;

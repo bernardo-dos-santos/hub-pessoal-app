@@ -15,14 +15,14 @@ import {
 } from '../types/question';
 
 const LABEL_STYLE = {
-  fontSize: '10px',
+  fontSize: '11px',
   fontWeight: 500,
   textTransform: 'uppercase' as const,
   letterSpacing: '0.1em',
   color: 'var(--hub-subtle)',
 };
 
-/** Gerar questões a partir de material da faculdade ou de um tema de concurso. */
+/** Gerar questões a partir de material da faculdade. */
 export function NewQuestionsPage() {
   const aiReady = useAiAvailable();
   const [source, setSource] = useState<StudySource | null>(null);
@@ -61,7 +61,7 @@ export function NewQuestionsPage() {
         difficulty,
         examStyle,
       });
-      const withMaterials = source.kind === 'college' && source.materialIds.length > 0
+      const withMaterials = source.materialIds.length > 0
         ? questions.map((q) => ({ ...q, materialIds: source.materialIds }))
         : questions;
 

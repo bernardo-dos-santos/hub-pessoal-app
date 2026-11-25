@@ -16,7 +16,31 @@ import {
   getMonthKey,
   type MonthSelection,
 } from '../utils/financeCalculations';
-import { formatMonthLabel, getPreviousMonthKey } from '../utils/financePeriod';
+import { formatMonthLabel, getCurrentMonthKey, getMonthStartDay, getPreviousMonthKey } from '../utils/financePeriod';
+import { financialMonthRange } from '../../../shared/finance/financeMonth.js';
+import { localDayKey } from '../../../shared/dates/localDay.js';
+import type { Transaction } from '../types/transaction';
+
+/**
+ * While the month is under way, the previous one is compared up to the same
+ * point (day 22 of the period against day 22 of the last). Against the whole
+ * previous month, every month in progress "spent less" — until its last day.
+ */
+function previousCutoff(currentMonth: string): string | undefined {
+  if (currentMonth !== getCurrentMonthKey()) return undefined;
+  const startDay = getMonthStartDay();
+  const current = financialMonthRange(currentMonth, startDay);
+  const previous = financialMonthRange(getPreviousMonthKey(currentMonth), startDay);
+  const elapsed = Math.round((Date.parse(`${localDayKey()}T00:00:00Z`) - Date.parse(`${current.start}T00:00:00Z`)) / 86_400_000);
+  const cut = new Date(`${previous.start}T00:00:00Z`);
+  cut.setUTCDate(cut.getUTCDate() + elapsed);
+  const cutKey = cut.toISOString().slice(0, 10);
+  return cutKey < previous.end ? cutKey : undefined;
+}
+
+function upTo(transactions: Transaction[], cutoff: string | undefined) {
+  return cutoff ? transactions.filter((t) => t.date.slice(0, 10) <= cutoff) : transactions;
+}
 import { transactionService } from './transactionService';
 
 function percentChange(currentValue: number, previousValue: number) {
@@ -42,8 +66,9 @@ function createCountDelta(currentValue: number, previousValue: number) {
 
 function compareCategoryExpenses(selectedMonth: string): MonthlyCategoryComparison[] {
   const previousMonth = getPreviousMonthKey(selectedMonth);
-  const currentExpenses = calculateNetExpensesByCategory(transactionService.listTransactions(), selectedMonth);
-  const previousExpenses = calculateNetExpensesByCategory(transactionService.listTransactions(), previousMonth);
+  const transactions = transactionService.listTransactions();
+  const currentExpenses = calculateNetExpensesByCategory(transactions, selectedMonth);
+  const previousExpenses = calculateNetExpensesByCategory(upTo(transactions, previousCutoff(selectedMonth)), previousMonth);
   const currentByCategory = new Map(currentExpenses.map((item) => [item.category, item]));
   const previousByCategory = new Map(previousExpenses.map((item) => [item.category, item]));
   const categories = new Set([...currentByCategory.keys(), ...previousByCategory.keys()]);
@@ -110,11 +135,18 @@ export const financeSummaryService = {
     const currentMonth = getMonthKey(selectedMonth);
     const previousMonth = getPreviousMonthKey(currentMonth);
     const currentSummary = this.getFinanceSummary(currentMonth);
-    const previousSummary = this.getFinanceSummary(previousMonth);
+    const previousUntil = previousCutoff(currentMonth);
+    const previousSummary = previousUntil
+      ? {
+          ...this.getFinanceSummary(previousMonth),
+          ...calculateFinanceSummary(upTo(filterTransactionsBySelectedMonth(transactionService.listTransactions(), previousMonth), previousUntil)),
+        }
+      : this.getFinanceSummary(previousMonth);
 
     return {
       currentMonth,
       previousMonth,
+      previousUntil,
       currentSummary,
       previousSummary,
       deltas: {

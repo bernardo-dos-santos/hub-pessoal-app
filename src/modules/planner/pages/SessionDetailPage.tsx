@@ -4,7 +4,7 @@ import { weeklyPlanService } from '../services/weeklyPlanService';
 import { generateSessionBreakdown } from '../services/aiSessionBreakdownService';
 import { useAiAvailable } from '../../../core/ai/useAiAvailable';
 import { type StudyBreakdownItem, type WeeklySession, WEEK_DAY_LABEL } from '../types/routine';
-import { Card, BackButton, Eyebrow } from '../../../shared/ui';
+import { Card, BackButton, Eyebrow, ModuleHeader } from '../../../shared/ui';
 
 function formatMins(min: number) {
   if (min < 60) return `${min}min`;
@@ -85,7 +85,7 @@ export function SessionDetailPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
-      <BackButton />
+      <ModuleHeader eyebrow="Módulo · Planejador" title="Sessão" />
 
       {/* Header da sessão */}
       <Card hero>

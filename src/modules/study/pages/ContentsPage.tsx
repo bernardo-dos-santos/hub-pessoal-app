@@ -80,7 +80,7 @@ export function ContentsPage() {
                 <p className="truncate text-sm font-medium" style={{ color: 'var(--hub-text)' }}>{c.title}</p>
                 <div className="mt-0.5 flex items-center gap-2">
                   {c.subjectTag && (
-                    <span className="text-[10px] font-medium" style={{ color: 'var(--hub-accent)' }}>
+                    <span className="text-[11px] font-medium" style={{ color: 'var(--hub-accent)' }}>
                       {c.subjectTag}
                     </span>
                   )}

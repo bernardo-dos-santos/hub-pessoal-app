@@ -83,10 +83,37 @@ export const selfTools = [
   },
 ];
 
+/**
+ * Hard limits on what the proactive tick may push. The prompt asks for
+ * restraint, but on 2026-10-11 it pushed about the same late study session
+ * five times in three hours (one per 45-minute tick) — a prompt is not a cap.
+ * Past either limit, the note still lands in the inbox, just without a push.
+ */
+export const MAX_PUSHES_PER_DAY = 2;
+export const MIN_HOURS_BETWEEN_PUSHES = 3;
+
+/** Why a push would be over the limit right now, or null if it may go. */
+export function pushBlockedReason(items, now = new Date()) {
+  const pushed = items.filter((item) => item.pushed);
+  const today = now.toDateString();
+  const todayCount = pushed.filter((item) => new Date(item.createdAt).toDateString() === today).length;
+  if (todayCount >= MAX_PUSHES_PER_DAY) return `já foram ${todayCount} pushes hoje (máximo ${MAX_PUSHES_PER_DAY})`;
+  const last = pushed[0] ? new Date(pushed[0].createdAt) : null;
+  if (last && now.getTime() - last.getTime() < MIN_HOURS_BETWEEN_PUSHES * 3_600_000) {
+    return `o último push foi há menos de ${MIN_HOURS_BETWEEN_PUSHES}h`;
+  }
+  return null;
+}
+
 export async function executeSelfTool(name, args) {
   switch (name) {
     case 'notify_bernardo': {
-      const item = addInboxItem({ kind: 'observation', title: args.title, body: args.body });
+      const blocked = pushBlockedReason(kv('jarvis.inbox') ?? []);
+      if (blocked) {
+        const item = addInboxItem({ kind: 'observation', title: args.title, body: args.body });
+        return { ok: true, message: `Push NÃO enviado — ${blocked}. Ficou só na caixa de entrada: "${args.title}".`, affectedKey: 'jarvis.inbox', inboxItemId: item.id };
+      }
+      const item = addInboxItem({ kind: 'observation', title: args.title, body: args.body, pushed: true });
       await sendPushNotifications([{ title: args.title, body: args.body, url: '/' }]).catch(() => null);
       return { ok: true, message: `Notificado: "${args.title}"`, affectedKey: 'jarvis.inbox', inboxItemId: item.id };
     }

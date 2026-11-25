@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { jarvisService } from './jarvisService';
 import { useJarvisSpeaking } from './useJarvisSpeaking';
+import { startMicLevels } from './micLevels';
+import { emitVoiceLevels } from './voiceLevels';
 
 export type VoiceState =
   | 'listening' | 'thinking' | 'speaking'
@@ -44,15 +47,16 @@ const SILENCE_DEBOUNCE_MS = 1_000;
 const MIC_REOPEN_DELAY_MS = 250;
 
 /**
- * Chamar o Jarvis pelo nome corta a fala dele.
+ * Chamar a Íris pelo nome corta a fala dela.
  *
- * Casa por VARIANTE, não por igualdade: o reconhecimento em pt-BR raramente
- * acerta "Jarvis". Ditando, o próprio Bernardo produziu "Jarobs", "Jarves" e
- * "Jarvis" em três tentativas seguidas. Comparar com a string exata falharia
- * justo na hora em que a palavra mais importa. Daí "token curto começando com
- * jar" — pega todas elas.
+ * Casa por VARIANTE, não por igualdade (acentos já saíram em isStopCommand):
+ * com "Jarvis" o reconhecimento em pt-BR errava quase sempre ("Jarobs",
+ * "Jarves" em tentativas seguidas), e comparar com a string exata falharia
+ * justo na hora em que a palavra mais importa. Para "Íris" as variantes
+ * esperadas são "iris", "ires" e "iriz" — ainda não medidas no celular como
+ * as do Jarvis foram; se ele transcrever outra coisa, é aqui que entra.
  */
-const STOP_WORD_RE = /^jar[a-z]{0,5}$/;
+const STOP_WORD_RE = /^ir[ie][sz]$/;
 
 /**
  * Teto de palavras para valer como interrupção.
@@ -341,6 +345,11 @@ export function useVoiceSession(enabled = true) {
       }
       finalBufferRef.current = final;
       setTranscript(`${finalBufferRef.current} ${interim}`.trim());
+      // On the APK the Íris can't read the microphone (see micLevels.ts): each
+      // recognized word is a pulse instead, so the arcs still follow the voice.
+      if (Capacitor.isNativePlatform() && (interim || final)) {
+        emitVoiceLevels({ low: 0.55 + Math.random() * 0.3, mid: 0.5 + Math.random() * 0.4, high: Math.random() * 0.6 });
+      }
       // Ainda falando (resultado parcial) — adia o timeout total e segura o
       // envio: o segmento final que acabou de chegar era só uma pausa entre
       // palavras, não o fim da fala.
@@ -428,6 +437,21 @@ export function useVoiceSession(enabled = true) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só `enabled` liga/desliga; handleFinalTranscript/startListening usam refs, não precisam entrar nas deps
   }, [enabled]);
+
+  // In the browser, the Íris's arcs follow the microphone while listening.
+  useEffect(() => {
+    if (!enabled || state !== 'listening' || Capacitor.isNativePlatform()) return;
+    let release: (() => void) | null = null;
+    let cancelled = false;
+    void startMicLevels().then((stop) => {
+      if (cancelled) stop();
+      else release = stop;
+    });
+    return () => {
+      cancelled = true;
+      release?.();
+    };
+  }, [enabled, state]);
 
   return { state, transcript, retry, label: VOICE_STATE_LABEL[state] };
 }

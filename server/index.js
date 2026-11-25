@@ -11,7 +11,9 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, createR
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { kvStore, materialContent, projectFiles } from './db.js';
+import { createServer } from 'node:http';
+import { clientCerts, kvStore, materialContent, projectFiles, users } from './db.js';
+import { isStudyPlanInUse } from '../src/shared/activity/recentActivity.js';
 import { generateAndSaveWeeklyPlan } from './ai-planner.js';
 import { generateBriefing, getCachedBriefing } from './briefing.js';
 import { pushRoutes } from './push.js';
@@ -31,13 +33,25 @@ import { listCommands, approveCommand, rejectCommand } from './jarvis/commands.j
 import { recordLocation, listPlaces, addPlace, removePlace, lastRawLocation, getLocationContext } from './jarvis/location.js';
 import { generateMonthlySummary, getMonthlySummary } from './finance-monthly-summary.js';
 import { synthesizeSpeech } from './tts.js';
+import { PENDING_NAMES, pendingPath, migrateLegacyPending } from './pendingFiles.js';
+import { readSyncLog, systemHealth } from './systemHealth.js';
+import { runAsUser, OWNER_ID } from './userContext.js';
+import { resolvePrivateIdentity, resolvePublicIdentity } from './identity.js';
+import { isMaintenanceLocked, registerUserRoutes, touchLastSeen } from './usersApi.js';
+import { registerConnectionRoutes } from './connectionsApi.js';
+import { registerAppReleaseRoutes } from './appRelease.js';
 import { checkRepoIdentity, discoverRepos, getCommits, listBranches as listGitBranches } from './githubApi.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = resolve(__dirname, '../dist');
-const PUBLIC_DIR = resolve(__dirname, '../public');
-const UPLOADS_DIR = resolve(__dirname, '../uploads/projects');
+// HUB_UPLOADS_DIR, como HUB_DB_PATH, existe para os testes não escreverem nos anexos de verdade.
+const UPLOADS_ROOT = process.env.HUB_UPLOADS_DIR ? resolve(process.env.HUB_UPLOADS_DIR) : resolve(__dirname, '../uploads');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3001;
+// F4: the port the Cloudflare Tunnel reaches (only cloudflared, on localhost).
+// Unset = no public port at all. PUBLIC_ORIGIN is the address people open,
+// e.g. https://app.example.com.br — allowed by CORS like the tailnet's.
+const PUBLIC_PORT = process.env.PUBLIC_PORT ? Number(process.env.PUBLIC_PORT) : null;
+const PUBLIC_ORIGIN = process.env.PUBLIC_ORIGIN ?? null;
 
 const app = express();
 
@@ -69,6 +83,7 @@ const LOCALHOST_ORIGIN_RE = /^https?:\/\/localhost(:\d+)?$/;
 
 function isAllowedOrigin(origin) {
   return ALLOWED_ORIGINS.has(origin)
+    || (PUBLIC_ORIGIN !== null && origin === PUBLIC_ORIGIN)
     || TAILSCALE_ORIGIN_RE.test(origin)
     || TAILSCALE_MAGICDNS_RE.test(origin)
     || LOCALHOST_ORIGIN_RE.test(origin);
@@ -114,11 +129,56 @@ function isTrustedRemote(rawIp) {
 }
 
 app.use('/api', (req, res, next) => {
+  // Every connection to the public port comes from cloudflared on localhost, so
+  // "localhost is trusted" would let the whole internet in. There the device
+  // certificate is the authentication, checked by the identity step below.
+  if (req.viaPublicPort) return next();
   if (!HUB_API_KEY) return next();
   if (isTrustedRemote(req.socket.remoteAddress)) return next();
   const auth = req.headers.authorization ?? '';
   if (auth === `Bearer ${HUB_API_KEY}`) return next();
   res.status(401).json({ error: 'Unauthorized' });
+});
+
+// ─── Identidade ──────────────────────────────────────────────────────────────
+// Rede autenticada acima; aqui se decide DE QUEM é a requisição (ver
+// server/identity.js). O resto do pipeline roda dentro de runAsUser, então
+// todo acesso ao banco já sai filtrado pelo usuário certo.
+
+/**
+ * O que usa credencial ou máquina do dono (chave da Anthropic do .env, o
+ * notebook dele, os syncs dele, o GitHub dele) ou é diagnóstico do servidor.
+ * Na F5 parte disso vira por usuário; até lá, só o dono passa.
+ */
+const OWNER_ONLY_PREFIXES = [
+  '/api/jarvis', '/api/agent', '/api/tts', '/api/briefing',
+  '/api/logs', '/api/system', '/api/git', '/api/push/send',
+];
+
+/**
+ * What only answers through Tailscale, even for the admin: managing people and
+ * certificates, "ver como", and anything that controls a machine (the agent,
+ * approving its commands, raising its access level). A stolen phone with a
+ * valid certificate must not be enough for any of that.
+ */
+const PRIVATE_ONLY_PREFIXES = ['/api/admin', '/api/agent', '/api/jarvis/commands', '/api/jarvis/config'];
+
+app.use('/api', (req, res, next) => {
+  const path = req.originalUrl.split('?')[0];
+  const matches = (prefixes) => prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  if (req.viaPublicPort && matches(PRIVATE_ONLY_PREFIXES)) {
+    return res.status(403).json({ error: 'Disponível só pelo Tailscale.' });
+  }
+
+  const identity = req.viaPublicPort ? resolvePublicIdentity(req.headers) : resolvePrivateIdentity(req.headers);
+  if ('error' in identity) return res.status(identity.status).json({ error: identity.error });
+  req.userId = identity.userId;
+  req.realUserId = identity.realUserId;
+  touchLastSeen(req.realUserId, req.userId);
+
+  if (matches(OWNER_ONLY_PREFIXES) && req.userId !== OWNER_ID) return res.status(403).json({ error: 'Disponível só para o dono do Olimpo.' });
+
+  runAsUser(req.userId, next);
 });
 
 // ─── Rate limiting ───────────────────────────────────────────────────────────
@@ -128,6 +188,9 @@ function makeLimit(max, windowMs) {
     windowMs,
     standardHeaders: true,
     legacyHeaders: false,
+    // Per user, not per IP: through the Cloudflare Tunnel every request comes
+    // from 127.0.0.1, so an IP bucket would make everyone share one quota.
+    keyGenerator: (req) => `user:${req.userId}`,
     message: { error: 'Muitas requisições — tente novamente em breve.' },
   });
 }
@@ -142,6 +205,10 @@ const limits = {
 };
 
 // ─── API ────────────────────────────────────────────────────────────────────
+
+registerUserRoutes(app);
+registerConnectionRoutes(app);
+registerAppReleaseRoutes(app);
 
 // Snapshot completo do store (usado no boot do app).
 app.get('/api/store', limits.store, (_req, res) => {
@@ -178,6 +245,9 @@ app.put('/api/store/:key', (req, res) => {
   if (!('value' in (req.body ?? {}))) {
     return res.status(400).json({ error: 'Body deve conter { value }.' });
   }
+  if (isMaintenanceLocked(key, req.realUserId)) {
+    return res.status(423).json({ error: 'Módulo em manutenção — volta em breve.' });
+  }
   kvStore.set(key, JSON.stringify(req.body.value));
   res.json({ ok: true });
 });
@@ -187,13 +257,16 @@ app.delete('/api/store/:key', (req, res) => {
   if (!isHubKey(key)) {
     return res.status(400).json({ error: `Key inválida: "${key}". Use prefixos hub conhecidos.` });
   }
+  if (isMaintenanceLocked(key, req.realUserId)) {
+    return res.status(423).json({ error: 'Módulo em manutenção — volta em breve.' });
+  }
   kvStore.delete(key);
   res.json({ ok: true });
 });
 
 // ─── Backup ─────────────────────────────────────────────────────────────────
 
-const HUB_KEY_PREFIXES = ['finance.', 'fitness.', 'college.', 'concurso.', 'rpg.', 'study.', 'goals.', 'ai.', 'planner.', 'hub.', 'push.', 'jarvis.', 'projects.'];
+const HUB_KEY_PREFIXES = ['finance.', 'fitness.', 'college.', 'rpg.', 'study.', 'goals.', 'ai.', 'planner.', 'hub.', 'push.', 'jarvis.', 'projects.'];
 
 function isHubKey(key) {
   return HUB_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
@@ -214,7 +287,7 @@ app.get('/api/backup/export', limits.backup, (_req, res) => {
   res.json({
     version: 1,
     exportedAt: new Date().toISOString(),
-    appName: 'Hub Pessoal',
+    appName: 'Olimpo',
     data,
   });
 });
@@ -228,7 +301,7 @@ app.post('/api/backup/import', limits.backup, (req, res) => {
   let restored = 0;
   let skipped = 0;
   for (const [key, value] of Object.entries(backup.data)) {
-    if (!isHubKey(key)) { skipped++; continue; }
+    if (!isHubKey(key) || isMaintenanceLocked(key, req.realUserId)) { skipped++; continue; }
     try {
       kvStore.set(key, JSON.stringify(value));
       restored++;
@@ -333,6 +406,13 @@ app.post('/api/planner/generate', limits.planner, async (req, res) => {
     if (raw !== null && raw !== undefined && JSON.parse(raw) === false) {
       return res.json({ skipped: true, reason: 'Geração automática desligada pelo usuário.' });
     }
+    // A plan nobody follows isn't regenerated: last week's went untouched, so a
+    // new one would only feed reminders about sessions no one meant to do. The
+    // first plan still comes on its own, and the button (force) always works.
+    const completions = JSON.parse(kvStore.get('study.sessionCompletions') ?? '{}');
+    if (kvStore.get('planner.weeklyPlan') && !isStudyPlanInUse(completions)) {
+      return res.json({ skipped: true, reason: 'O plano anterior não foi seguido — sem plano novo automático.' });
+    }
   }
   try {
     const result = await generateAndSaveWeeklyPlan();
@@ -347,6 +427,8 @@ app.post('/api/planner/generate', limits.planner, async (req, res) => {
 app.get('/api/push/vapid-public-key', (req, res) => pushRoutes.getPublicKey(req, res));
 app.post('/api/push/subscribe', (req, res) => pushRoutes.subscribe(req, res));
 app.post('/api/push/unsubscribe', (req, res) => pushRoutes.unsubscribe(req, res));
+app.post('/api/push/devices', (req, res) => pushRoutes.registerDevice(req, res));
+app.post('/api/push/devices/unregister', (req, res) => pushRoutes.unregisterDevice(req, res));
 app.post('/api/push/send', (req, res) => pushRoutes.sendNotification(req, res));
 
 // ─── Briefing diário ─────────────────────────────────────────────────────────
@@ -429,7 +511,7 @@ app.post('/api/jarvis/chat', limits.jarvis, async (req, res) => {
       const { text, affectedKeys } = await handleJarvisChat(parsed.data.messages);
       res.json({ text, affectedKeys });
     } catch (err) {
-      res.status(500).json({ error: err.message ?? 'Erro no JARVIS.' });
+      res.status(500).json({ error: err.message ?? 'Erro na Íris.' });
     }
     return;
   }
@@ -452,7 +534,7 @@ app.post('/api/jarvis/chat', limits.jarvis, async (req, res) => {
   } catch (err) {
     // Já respondemos 200 com os headers de SSE, então erro vira evento — não
     // dá pra trocar o status depois de flushHeaders.
-    send('error', { error: err.message ?? 'Erro no JARVIS.' });
+    send('error', { error: err.message ?? 'Erro na Íris.' });
   }
   res.end();
 });
@@ -465,7 +547,7 @@ app.post('/api/jarvis/tick', async (_req, res) => {
     const result = await runInitiativeTick();
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message ?? 'Erro no tick do JARVIS.' });
+    res.status(500).json({ error: err.message ?? 'Erro no tick da Íris.' });
   }
 });
 
@@ -710,17 +792,13 @@ app.get('/api/git/log', limits.store, async (req, res) => {
 
 // ─── Logs de automação ───────────────────────────────────────────────────────
 
-const LOGS_PATH = resolve(__dirname, '../logs/sync-log.json');
+app.get('/api/logs', (_req, res) => res.json(readSyncLog().slice(0, 200)));
 
-app.get('/api/logs', (_req, res) => {
-  try {
-    const raw = existsSync(LOGS_PATH) ? readFileSync(LOGS_PATH, 'utf-8') : '[]';
-    const entries = JSON.parse(raw);
-    res.json(Array.isArray(entries) ? entries.slice(0, 200) : []);
-  } catch {
-    res.json([]);
-  }
-});
+// Jobs com erro ou parados, agente local e IA — ver server/systemHealth.js.
+app.get('/api/system/health', async (_req, res) => res.json(await systemHealth({
+  certs: clientCerts.list(),
+  userName: (id) => users.get(id)?.name ?? `usuário ${id}`,
+})));
 
 // ─── Arquivos de Projeto ──────────────────────────────────────────────────────
 // Bytes ficam em disco (uploads/projects/<projectId>/), fora do hub.db — anexar
@@ -746,9 +824,15 @@ function projectFileDto(row) {
 }
 
 // Só aceita o formato de id gerado por generateId('project') — barra path traversal
-// em join(UPLOADS_DIR, projectId) sem precisar validar contra o store.
+// no caminho de upload sem precisar validar contra o store.
 function isSafeId(id) {
   return typeof id === 'string' && /^[a-zA-Z0-9_-]+$/.test(id);
+}
+
+function isSafeInline(mimeType) {
+  const type = String(mimeType ?? '').toLowerCase().split(';')[0].trim();
+  if (type === 'image/svg+xml') return false;
+  return type === 'application/pdf' || type.startsWith('text/') || type.startsWith('image/');
 }
 
 function safeFileName(name) {
@@ -786,7 +870,7 @@ app.post('/api/projects/:projectId/files', limits.store, express.raw({ type: '*/
     sizeBytes: req.body.length,
     createdAt: new Date().toISOString(),
   };
-  const dir = join(UPLOADS_DIR, projectId);
+  const dir = join(UPLOADS_ROOT, String(req.userId), 'projects', projectId);
   mkdirSync(dir, { recursive: true });
   file.storagePath = join(dir, `${file.id}-${fileName}`);
   writeFileSync(file.storagePath, req.body);
@@ -806,7 +890,10 @@ app.get('/api/projects/files/:fileId/download', limits.store, (req, res) => {
   if (!file || !existsSync(file.storage_path)) {
     return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
-  const disposition = req.query.inline === '1' ? 'inline' : 'attachment';
+  // Inline só para o que o visualizador abre e o navegador não executa. Um
+  // .html (ou .svg, que carrega script) aberto inline rodaria JavaScript com
+  // acesso a todo o Hub, na mesma origem.
+  const disposition = req.query.inline === '1' && isSafeInline(file.mime_type) ? 'inline' : 'attachment';
   res.setHeader('Content-Type', file.mime_type);
   res.setHeader(
     'Content-Disposition',
@@ -861,6 +948,18 @@ app.delete('/api/projects/files/:fileId', limits.store, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── Arquivos pendentes dos syncs ───────────────────────────────────────────
+// Lidos do disco a cada pedido, então o app vê o sync recém-rodado sem rebuild.
+// Ver server/pendingFiles.js para por que saíram de public/.
+app.get('/api/pending/:name', (req, res) => {
+  const { name } = req.params;
+  if (!PENDING_NAMES.includes(name)) return res.status(404).json({ error: 'Pendência desconhecida.' });
+  const path = pendingPath(name, req.userId);
+  if (!existsSync(path)) return res.status(404).json({ error: 'Nada pendente.' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('application/json').send(readFileSync(path, 'utf-8'));
+});
+
 // ─── Materiais ───────────────────────────────────────────────────────────────
 
 app.get('/api/materials/:id/text', (req, res) => {
@@ -889,19 +988,14 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, keys: kvStore.count()
 
 // ─── Estáticos (build do Vite) ───────────────────────────────────────────────
 
-/**
- * Os arquivos `*-pending.json` são gravados pelos scripts de sync a cada rodada,
- * direto em `public/`. Como só o `dist/` era servido, o app enxergava a cópia
- * congelada no último build: com o sync do banco rodando a cada 15 minutos, o
- * frontend chegava a ficar quase uma hora atrás do que já estava em disco, e um
- * sync recém-executado parecia não ter trazido nada.
- *
- * Servir `public/` antes do `dist/` resolve na origem — os dois diretórios têm o
- * mesmo conteúdo fora esses arquivos, que em `public/` estão sempre mais novos.
- */
-if (existsSync(PUBLIC_DIR)) {
-  app.use(express.static(PUBLIC_DIR, { index: false }));
-}
+// The APK's fetch() goes through Capacitor's native bridge as a request to
+// /_capacitor_http_interceptor_?u=<real URL>, handled inside the app. If the
+// native request fails (e.g. Tailscale is off), the WebView sends it here
+// instead — and the SPA fallback below answered with index.html and a 200, which
+// the app took as a working backend. An error says what really happened.
+app.all(/^\/_capacitor_/, (_req, res) => {
+  res.status(502).json({ error: 'O app não alcançou o servidor pedido.' });
+});
 
 if (existsSync(DIST_DIR)) {
   app.use(express.static(DIST_DIR));
@@ -910,7 +1004,28 @@ if (existsSync(DIST_DIR)) {
   });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
+/**
+ * The public port's handler: the same app, with the request marked so the
+ * network auth and identity above switch to the device certificate. Marking
+ * the request, rather than checking the socket's port, keeps it testable on an
+ * ephemeral port.
+ */
+export function publicPortHandler(req, res) {
+  req.viaPublicPort = true;
+  app(req, res);
+}
+
+// Os testes de isolamento importam o app e sobem num porto efêmero próprio.
+export { app };
+
+if (!process.env.HUB_TEST && PUBLIC_PORT !== null) {
+  // 127.0.0.1 only: cloudflared runs on this machine, and nothing else may reach it.
+  createServer(publicPortHandler).listen(PUBLIC_PORT, '127.0.0.1', () => {
+    console.log(`[server] porta pública (Cloudflare Tunnel) em 127.0.0.1:${PUBLIC_PORT}`);
+  });
+}
+
+if (!process.env.HUB_TEST) app.listen(PORT, '0.0.0.0', () => runAsUser(OWNER_ID, () => {
   console.log(`[server] Hub Pessoal rodando em http://localhost:${PORT} (todas as interfaces)`);
   console.log(`[server] ${kvStore.count()} chaves no banco.`);
   if (!existsSync(DIST_DIR)) {
@@ -919,6 +1034,7 @@ app.listen(PORT, '0.0.0.0', () => {
   // Migra `jarvis.memories` (lista de fatos no kv, com teto de 60) para
   // /memories/perfil.md. Idempotente: apaga a chave antiga, então a segunda
   // execução não encontra nada para migrar.
+  migrateLegacyPending();
   const { migrated } = migrateLegacyMemories();
   if (migrated > 0) console.log(`[jarvis] ${migrated} memória(s) antiga(s) migrada(s) para /memories/perfil.md.`);
 
@@ -934,4 +1050,4 @@ app.listen(PORT, '0.0.0.0', () => {
   }
 
   startJarvisScheduler();
-});
+}));

@@ -1,18 +1,25 @@
 /**
  * briefing.js — geração server-side do morning briefing diário.
  * Lê dados do SQLite, monta contexto dos 5 módulos e chama Gemini.
- * Salva resultado em public/briefing-today.json (cache de 6h).
+ * Salva resultado em data/briefing-today.json (cache de 6h).
  */
 
 import { kvStore } from './db.js';
 import { callAi } from './aiProvider.js';
 import { getWeather } from './weather.js';
-import { writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { DATA_DIR } from './pendingFiles.js';
+import {
+  clampStartDay,
+  currentFinancialMonth,
+  isInFinancialMonth,
+  MONTH_START_DAY_KEY,
+} from '../src/shared/finance/financeMonth.js';
+import { summarizeTotals } from '../src/shared/finance/financeTotals.js';
+import { localDayKey } from '../src/shared/dates/localDay.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const BRIEFING_PATH = resolve(__dirname, '../public/briefing-today.json');
+const BRIEFING_PATH = resolve(DATA_DIR, 'briefing-today.json');
 const CACHE_HOURS = 6;
 
 function safeJson(raw) {
@@ -40,10 +47,13 @@ function buildBriefingContext() {
 
   // Financeiro
   const transactions = (getKey('finance.transactions') ?? []);
-  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
-  const monthTxs = transactions.filter((t) => t.date?.startsWith(currentMonth));
-  const income = monthTxs.filter((t) => t.kind === 'income').reduce((s, t) => s + (t.amount ?? 0), 0);
-  const expenses = monthTxs.filter((t) => ['expense', 'card_purchase'].includes(t.kind)).reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
+  const startDay = clampStartDay(getKey(MONTH_START_DAY_KEY));
+  const currentMonth = currentFinancialMonth(startDay, today);
+  const monthTxs = transactions.filter((t) => isInFinancialMonth(t.date, currentMonth, startDay));
+  // Same totals as the app (financeTotals.js) — refunds off, neutral moves out.
+  const { income, expenses } = summarizeTotals(monthTxs);
+  const [labelYear, labelMonth] = currentMonth.split('-').map(Number);
+  const monthLabel = new Date(labelYear, labelMonth - 1, 15).toLocaleDateString('pt-BR', { month: 'long' });
 
   // Fitness
   const workouts = getKey('fitness.workouts') ?? [];
@@ -56,12 +66,12 @@ function buildBriefingContext() {
   const assessments = getKey('college.assessments') ?? [];
   const subjects = getKey('college.subjects') ?? [];
   const upcoming = assessments
-    .filter((a) => a.status === 'scheduled' && a.date && a.date >= currentMonth)
+    .filter((a) => a.status === 'scheduled' && a.date && a.date >= localDayKey(today))
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(0, 3)
     .map((a) => {
       const sub = subjects.find((s) => s.id === a.subjectId);
-      const daysUntil = Math.round((new Date(a.date).getTime() - today.getTime()) / 86400000);
+      const daysUntil = Math.round((new Date(`${a.date.slice(0, 10)}T00:00:00`).getTime() - new Date(`${localDayKey(today)}T00:00:00`).getTime()) / 86400000);
       return `${sub?.name ?? a.subjectId}: ${a.title} (em ${daysUntil} dias)`;
     });
 
@@ -73,20 +83,13 @@ function buildBriefingContext() {
   // Metas
   const goals = (getKey('goals.list') ?? []).filter((g) => g.status === 'active');
 
-  // Concurso
-  const examDate = getKey('concurso.examDate');
-  const daysUntilExam = examDate
-    ? Math.ceil((new Date(examDate).getTime() - today.getTime()) / 86400000)
-    : null;
-
   return {
     todayStr,
-    finance: { income, expenses, balance: income - expenses, monthTxCount: monthTxs.length },
+    finance: { income, expenses, balance: income - expenses, monthTxCount: monthTxs.length, monthLabel },
     fitness: { daysSince, lastType: lastWorkout?.type ?? null },
     upcoming,
     todaySessions,
     goals: goals.slice(0, 3).map((g) => g.title),
-    daysUntilExam,
   };
 }
 
@@ -97,18 +100,17 @@ export async function generateBriefing(forceRegenerate = false) {
 
   const ctx = buildBriefingContext();
   // Clima é best-effort: se a API falhar, o briefing sai sem essa linha em vez
-  // de falhar inteiro. Importa por causa do Cooper, que é ao ar livre.
+  // de falhar inteiro. Importa para treino ao ar livre.
   const weather = await getWeather();
 
   const prompt = `Você é um assistente pessoal do Bernardo. Gere um briefing matinal CONCISO (4-6 frases) para hoje, ${ctx.todayStr}.
 
 Dados de hoje:
-- Financeiro (${new Date().toLocaleDateString('pt-BR', { month: 'long' })}): receita R$${ctx.finance.income.toFixed(0)}, gasto R$${ctx.finance.expenses.toFixed(0)}, saldo R$${ctx.finance.balance.toFixed(0)}
+- Financeiro (mês financeiro de ${ctx.finance.monthLabel}): receita R$${ctx.finance.income.toFixed(0)}, gasto R$${ctx.finance.expenses.toFixed(0)}, saldo R$${ctx.finance.balance.toFixed(0)}
 - Fitness: ${ctx.fitness.daysSince === null ? 'Nenhum treino registrado' : ctx.fitness.daysSince === 0 ? 'Treinou hoje!' : `Último treino há ${ctx.fitness.daysSince} dia(s) (${ctx.fitness.lastType})`}
 - Agenda do dia: ${ctx.todaySessions.length > 0 ? ctx.todaySessions.map((s) => `${s.topic} (${s.startTime})`).join(', ') : 'sem sessões planejadas'}
 - Avaliações próximas: ${ctx.upcoming.length > 0 ? ctx.upcoming.join('; ') : 'nenhuma'}
 - Metas ativas: ${ctx.goals.length > 0 ? ctx.goals.join(', ') : 'nenhuma'}
-${ctx.daysUntilExam !== null ? `- Prova CBMSC: ${ctx.daysUntilExam} dias` : ''}
 ${weather ? `- Tempo em ${weather.city}: ${weather.current.temp}°C agora, ${weather.today.condition}, máx ${weather.today.max}°C / mín ${weather.today.min}°C, ${weather.today.rainChance}% de chance de chuva` : ''}
 
 Tom: direto, motivador, sem rodeios. Mencione especificamente o que é mais urgente hoje.
@@ -123,6 +125,7 @@ Responda APENAS com o texto do briefing (sem JSON, sem títulos). Texto puro, se
     context: ctx,
   };
 
+  mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(BRIEFING_PATH, JSON.stringify(briefing, null, 2), 'utf-8');
   return briefing;
 }

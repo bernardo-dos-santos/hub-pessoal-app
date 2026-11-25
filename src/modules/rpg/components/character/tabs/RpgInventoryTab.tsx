@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react';
-import { Select } from '../../../../../shared/ui';
+import { Select, useConfirm } from '../../../../../shared/ui';
 import { rpgInventoryPresets } from '../../../data/rpgInventoryPresets';
 import { type RpgCharacter, type RpgInventoryItem, type RpgInventoryItemInput } from '../../../types/rpg';
 import { RpgPanel } from '../../RpgPanel';
@@ -17,8 +17,9 @@ type ItemDraft = {
   notes: string;
 };
 
-const inputClass = 'w-full bg-transparent pb-1.5 text-sm outline-none';
-const selectClass = 'w-full bg-transparent pb-1.5 text-sm outline-none cursor-pointer appearance-none';
+// Layout only — the base layer in global.css already styles bare inputs.
+const inputClass = 'w-full text-sm';
+const selectClass = 'w-full text-sm';
 
 function emptyDraft(): ItemDraft {
   return { name: '', quantity: 1, notes: '' };
@@ -29,6 +30,7 @@ function draftFromItem(item: RpgInventoryItem): ItemDraft {
 }
 
 export function RpgInventoryTab({ character, onAddItem, onUpdateItem, onDeleteItem }: RpgInventoryTabProps) {
+  const confirmAction = useConfirm();
   const [draft, setDraft] = useState<ItemDraft>(() => emptyDraft());
   const [presetId, setPresetId] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -70,8 +72,8 @@ export function RpgInventoryTab({ character, onAddItem, onUpdateItem, onDeleteIt
     }
   }
 
-  function handleDelete(item: RpgInventoryItem) {
-    if (!window.confirm(`Excluir "${item.name}" do inventário?`)) {
+  async function handleDelete(item: RpgInventoryItem) {
+    if (!(await confirmAction(`Excluir "${item.name}" do inventário?`))) {
       return;
     }
 
@@ -177,7 +179,7 @@ export function RpgInventoryTab({ character, onAddItem, onUpdateItem, onDeleteIt
 function Field({ children, label }: { children: React.ReactNode; label: string }) {
   return (
     <label className="space-y-1.5">
-      <span style={{ fontSize: '10px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
+      <span style={{ fontSize: '11px', letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>
         {label}
       </span>
       {children}

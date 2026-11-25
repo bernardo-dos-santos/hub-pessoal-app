@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ModuleHeader, Card, Select, DateField } from '../../../shared/ui';
+import { ModuleHeader, Card, Select, Toast } from '../../../shared/ui';
 import { getFinanceTabs } from '../components/financeTabs';
 import { EmptyFinanceState } from '../components/EmptyFinanceState';
 import { specialCategories } from '../data/specialCategories';
@@ -14,7 +14,8 @@ import { inferKindFromCategory } from '../services/transactionNormalizationServi
 import { transactionService } from '../services/transactionService';
 import { type TransactionKind } from '../types/finance';
 import { type Transaction } from '../types/transaction';
-import { isMatchedReimbursement, isRealExpense, isRealIncome } from '../utils/financeCalculations';
+import { isMatchedReimbursement, isRealExpense, isRealIncome, transactionMonthKey } from '../utils/financeCalculations';
+import { parseMoneyText } from '../utils/moneyParsing';
 import {
   formatClassificationConfidence,
   formatCurrency,
@@ -22,19 +23,21 @@ import {
   formatTransactionKind,
   formatTransactionMethod,
 } from '../utils/financeFormatters';
-import { formatMonthLabel, isValidMonthKey, withReimbursementsParams } from '../utils/financePeriod';
-import { extractMerchant } from '../utils/financeText';
+import { formatMonthLabel, getCurrentMonthKey, isValidMonthKey, withReimbursementsParams } from '../utils/financePeriod';
+import { extractMerchant, isGenericMerchant } from '../utils/financeText';
+import { MonthSelector } from '../components/MonthSelector';
+import { ImportReviewMonths } from '../components/ImportReviewMonths';
+import { ReviewQuickCard } from '../components/ReviewQuickCard';
+import { suggestReviewCategories } from '../services/reviewSuggestionService';
 
-type ReviewFilter =
-  | 'required'
-  | 'income_review'
-  | 'expense_review'
-  | 'transfers'
-  | 'card_payments'
-  | 'card_payment_received'
-  | 'neutral'
-  | 'low_confidence'
-  | 'reviewed';
+const ALL_MONTHS = 'all';
+
+/**
+ * Four questions, not nine: what needs me, what may, what the app wasn't sure of,
+ * what I already did. "Entrada/Despesa a revisar" were slices of the first, and
+ * transfers/bill payments by kind are what Gastos' filters are for.
+ */
+type ReviewFilter = 'required' | 'neutral' | 'low_confidence' | 'reviewed';
 
 type ReviewDraft = Pick<Transaction, 'category' | 'kind'> & {
   notes: string;
@@ -55,15 +58,10 @@ const kindOptions: TransactionKind[] = [
 ];
 
 const filters: Array<{ id: ReviewFilter; label: string }> = [
-  { id: 'required', label: 'Revisão necessária' },
-  { id: 'income_review', label: 'Entrada a revisar' },
-  { id: 'expense_review', label: 'Despesa a revisar' },
-  { id: 'transfers', label: 'Transferências' },
-  { id: 'card_payments', label: 'Pgto. fatura' },
-  { id: 'card_payment_received', label: 'Pgto. recebido' },
+  { id: 'required', label: 'Precisa de você' },
   { id: 'neutral', label: 'Opcional' },
-  { id: 'low_confidence', label: 'Baixa confiança' },
-  { id: 'reviewed', label: 'Revisadas' },
+  { id: 'low_confidence', label: 'Incertos' },
+  { id: 'reviewed', label: 'Já revisados' },
 ];
 
 function createDraft(transaction: Transaction): ReviewDraft {
@@ -103,7 +101,7 @@ function transactionStatus(transaction: Transaction) {
 
 function transactionStatusColor(transaction: Transaction): string {
   return transactionStatus(transaction) === 'Conferência opcional'
-    ? 'color-mix(in srgb, var(--hub-accent) 75%, transparent)'
+    ? 'var(--hub-accent)'
     : 'var(--hub-warning)';
 }
 
@@ -121,11 +119,16 @@ function isNeutralResult(transaction: Transaction) {
 export function ReviewPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const monthParam = searchParams.get('month');
-  const selectedMonth = isValidMonthKey(monthParam) ? monthParam : null;
+  // The queue is the month's: October's pending items don't sit in November's
+  // list. `?month=all` is the explicit "everything" view.
+  const selectedMonth = monthParam === ALL_MONTHS ? null : isValidMonthKey(monthParam) ? monthParam : getCurrentMonthKey();
   const [allTransactions, setAllTransactions] = useState(() => transactionService.listTransactions());
   const [requiredTransactions, setRequiredTransactions] = useState(() => transactionService.listRequiredReviewTransactions());
   const [optionalTransactions, setOptionalTransactions] = useState(() => transactionService.listOptionalCheckTransactions());
   const [reviewableTransactions, setReviewableTransactions] = useState(() => transactionService.listReviewableTransactions());
+  const otherPendingMonths = [...new Set(requiredTransactions.map(transactionMonthKey))]
+    .filter((month) => month !== selectedMonth)
+    .sort();
   const [filter, setFilter] = useState<ReviewFilter>('required');
   const [search, setSearch] = useState('');
   const [activeId, setActiveId] = useState<string | null>(() => transactionService.listRequiredReviewTransactions()[0]?.id ?? null);
@@ -138,33 +141,41 @@ export function ReviewPage() {
   const [ruleMessage, setRuleMessage] = useState('');
   const [ruleApplicationPreview, setRuleApplicationPreview] = useState<RuleApplicationPreview | null>(null);
   const [selectedRuleApplicationIds, setSelectedRuleApplicationIds] = useState<string[]>([]);
-  const pendingReviewCount = requiredTransactions.length;
+  // The one-tap queue is the default; filters, rules and the full form are the detailed mode.
+  const [detailed, setDetailed] = useState(false);
+  const [rememberAnswer, setRememberAnswer] = useState(true);
+  // The last quick answer, to put back: the items it touched and the rules before it.
+  const [undoSnapshot, setUndoSnapshot] = useState<{ transactions: Transaction[]; rules: ReturnType<typeof categoryRuleService.listCategoryRules> } | null>(null);
+  // The badge counts the current financial month only, like every other finance tab.
+  const pendingReviewCount = useMemo(() => {
+    const currentMonth = getCurrentMonthKey();
+    return requiredTransactions.filter((transaction) => transactionMonthKey(transaction) === currentMonth).length;
+  }, [requiredTransactions]);
 
   const optionalIds = useMemo(() => new Set(optionalTransactions.map((transaction) => transaction.id)), [optionalTransactions]);
 
-  // Contagem por filtro para exibir nos botões
+  const inSelectedMonth = useMemo(
+    () => (transaction: Transaction) => !selectedMonth || transactionMonthKey(transaction) === selectedMonth,
+    [selectedMonth],
+  );
+  const monthRequired = useMemo(() => requiredTransactions.filter(inSelectedMonth), [inSelectedMonth, requiredTransactions]);
+  const monthOptional = useMemo(() => optionalTransactions.filter(inSelectedMonth), [inSelectedMonth, optionalTransactions]);
+
+  // Contagem por filtro para exibir nos botões — do mês selecionado
   const filterCounts = useMemo(() => {
     const base = (pred: (t: typeof allTransactions[0]) => boolean) =>
-      reviewableTransactions.filter(pred).length;
+      reviewableTransactions.filter((t) => inSelectedMonth(t) && pred(t)).length;
     return {
-      required: requiredTransactions.length,
-      income_review:  base((t) => t.category === specialCategories.incomeReview),
-      expense_review: base((t) => t.category === specialCategories.expenseReview),
-      transfers:      base((t) => t.kind === 'transfer' || t.category === specialCategories.internalTransfer),
-      card_payments:  base((t) => t.kind === 'card_payment' || t.category === specialCategories.cardPayment),
-      card_payment_received: base((t) => t.kind === 'card_payment_received' || t.category === specialCategories.cardPaymentReceived),
-      neutral:        optionalTransactions.length,
+      required: monthRequired.length,
+      neutral:        monthOptional.length,
       low_confidence: base((t) => t.classificationConfidence === 'low'),
-      reviewed:       allTransactions.filter((t) => Boolean(t.reviewedAt)).length,
+      reviewed:       allTransactions.filter((t) => inSelectedMonth(t) && Boolean(t.reviewedAt)).length,
     } as Record<string, number>;
-  }, [allTransactions, optionalTransactions, requiredTransactions, reviewableTransactions]);
+  }, [allTransactions, inSelectedMonth, monthOptional, monthRequired, reviewableTransactions]);
   const categoryOptions = useMemo(
     () => [...new Set([...categoryService.getAvailableCategories().map((category) => category.name), ...allTransactions.map((item) => item.category)])].sort(),
     [allTransactions],
   );
-  const pendingOutsideSelectedMonth = selectedMonth
-    ? requiredTransactions.filter((transaction) => !transaction.date.startsWith(selectedMonth)).length
-    : 0;
 
   const filteredTransactions = useMemo(() => {
     const candidateTransactions = filter === 'reviewed'
@@ -185,28 +196,8 @@ export function ReviewPage() {
         return false;
       }
 
-      if (selectedMonth && !transaction.date.startsWith(selectedMonth)) {
+      if (!inSelectedMonth(transaction)) {
         return false;
-      }
-
-      if (filter === 'income_review') {
-        return transaction.category === specialCategories.incomeReview;
-      }
-
-      if (filter === 'expense_review') {
-        return transaction.category === specialCategories.expenseReview;
-      }
-
-      if (filter === 'transfers') {
-        return transaction.kind === 'transfer' || transaction.category === specialCategories.internalTransfer;
-      }
-
-      if (filter === 'card_payments') {
-        return transaction.kind === 'card_payment' || transaction.category === specialCategories.cardPayment;
-      }
-
-      if (filter === 'card_payment_received') {
-        return transaction.kind === 'card_payment_received' || transaction.category === specialCategories.cardPaymentReceived;
       }
 
       if (filter === 'neutral') {
@@ -219,18 +210,24 @@ export function ReviewPage() {
 
       return true;
     });
-  }, [allTransactions, filter, optionalIds, requiredTransactions, reviewableTransactions, search, selectedMonth]);
+  }, [allTransactions, filter, inSelectedMonth, optionalIds, requiredTransactions, reviewableTransactions, search]);
 
   const activeTransaction =
     filteredTransactions.find((transaction) => transaction.id === activeId) ?? filteredTransactions[0] ?? null;
 
   useEffect(() => {
     setDraft(activeTransaction ? createDraft(activeTransaction) : null);
-    setRuleKeyword(activeTransaction ? extractMerchant(activeTransaction.description) : '');
+    const merchant = activeTransaction ? extractMerchant(activeTransaction.description) : '';
+    setRuleKeyword(merchant);
     setRuleMessage('');
+    // "Pix enviado" or "Transferência" as a rule would catch every Pix: remembering
+    // starts off for those, on for a real store name.
+    setRememberAnswer(!isGenericMerchant(merchant));
   }, [activeTransaction?.id]);
 
   function refreshReviewData(nextActiveId?: string | null) {
+    // Any other change ends the chance to undo the last quick answer.
+    setUndoSnapshot(null);
     setAllTransactions(transactionService.listTransactions());
     setRequiredTransactions(transactionService.listRequiredReviewTransactions());
     setOptionalTransactions(transactionService.listOptionalCheckTransactions());
@@ -253,7 +250,7 @@ export function ReviewPage() {
     const showInstallment = draft.kind === 'card_purchase' && Math.abs(activeTransaction.amount) > 200;
     const n = parseInt(draft.installmentCount);
     const installmentCount = showInstallment && draft.isInstallment && !isNaN(n) && n >= 2 ? n : undefined;
-    const parsedValue = draft.installmentValue !== '' ? parseFloat(draft.installmentValue.replace(',', '.')) : undefined;
+    const parsedValue = draft.installmentValue.trim() !== '' ? parseMoneyText(draft.installmentValue) ?? undefined : undefined;
     const installmentValue = installmentCount != null
       ? (parsedValue ?? Math.abs(activeTransaction.amount) / installmentCount)
       : undefined;
@@ -306,7 +303,7 @@ export function ReviewPage() {
     const preview = categoryRuleApplicationService.previewApplyActiveRulesToEligibleTransactions();
 
     setRuleApplicationPreview(preview);
-    setSelectedRuleApplicationIds(preview.matches.map((match) => match.transactionId));
+    setSelectedRuleApplicationIds(preview.matches.filter((match) => match.matchOrigin === 'required_review').map((match) => match.transactionId));
     setMessage('');
   }
 
@@ -335,11 +332,7 @@ export function ReviewPage() {
   function changeSelectedMonth(value: string) {
     const nextSearchParams = new URLSearchParams(searchParams);
 
-    if (isValidMonthKey(value)) {
-      nextSearchParams.set('month', value);
-    } else {
-      nextSearchParams.delete('month');
-    }
+    nextSearchParams.set('month', isValidMonthKey(value) ? value : ALL_MONTHS);
 
     setSearchParams(nextSearchParams);
     setActiveId(null);
@@ -386,7 +379,7 @@ export function ReviewPage() {
 
       if (pendingForRule > 0) {
         setRuleApplicationPreview(preview);
-        setSelectedRuleApplicationIds(preview.matches.map((match) => match.transactionId));
+        setSelectedRuleApplicationIds(preview.matches.filter((match) => match.matchOrigin === 'required_review').map((match) => match.transactionId));
         setMessage(
           `Regra criada e aplicada: ${rule.category}. Ela também combina com ${pendingForRule} lançamento(s) — confira abaixo antes de aplicar.`,
         );
@@ -398,9 +391,181 @@ export function ReviewPage() {
     }
   }
 
+  function openDetailed() {
+    setDetailed(true);
+    setMessage('');
+  }
+
+  function openQuick() {
+    setDetailed(false);
+    setFilter('required');
+    setSearch('');
+    setActiveId(null);
+    setMessage('');
+  }
+
+  /**
+   * One-tap answer: review the item and, with "Lembrar para as próximas",
+   * turn the answer into a rule and resolve the other *pending* items it
+   * matches. Pending ones only — an item the classifier already decided is
+   * still reclassified only through the explicit preview in detailed mode.
+   */
+  function resolveQuick(category: string, kind: TransactionKind) {
+    if (!activeTransaction) return;
+
+    const nextId = nextIdAfter(activeTransaction.id);
+    const rulesBefore = categoryRuleService.listCategoryRules();
+    const touched: Transaction[] = [activeTransaction];
+    transactionService.reviewTransaction(activeTransaction.id, {
+      category,
+      kind,
+      needsReview: false,
+      reviewedBy: 'quick_action',
+    });
+
+    let alsoResolved = 0;
+    let ruleNote = '';
+    if (rememberAnswer) {
+      try {
+        const rule = categoryRuleService.createRuleFromTransaction(activeTransaction, category, undefined, kind);
+        const sameRuleIds = categoryRuleApplicationService
+          .previewApplyActiveRulesToEligibleTransactions()
+          .matches.filter((match) => match.matchedRuleId === rule.id && match.matchOrigin === 'required_review')
+          .map((match) => match.transactionId)
+          // Only the month on screen: the answer shouldn't quietly rewrite other months.
+          .filter((id) => {
+            const pending = requiredTransactions.find((transaction) => transaction.id === id);
+            return Boolean(pending && inSelectedMonth(pending));
+          });
+        for (const id of sameRuleIds) {
+          const before = transactionService.getTransactionById(id);
+          if (before) touched.push(before);
+        }
+        if (sameRuleIds.length > 0) {
+          alsoResolved = categoryRuleApplicationService.applyActiveRulesToEligibleTransactions(sameRuleIds).updatedCount;
+        }
+      } catch (ruleError) {
+        ruleNote = ruleError instanceof Error ? ` (regra não criada: ${ruleError.message})` : '';
+      }
+    }
+
+    refreshReviewData(nextId);
+    setUndoSnapshot({ transactions: touched, rules: rulesBefore });
+    setMessage(
+      `${activeTransaction.description} → ${category}`
+        + (alsoResolved > 0 ? ` · e mais ${alsoResolved} parecida${alsoResolved === 1 ? '' : 's'}` : '')
+        + ruleNote,
+    );
+  }
+
+  function undoLastAnswer() {
+    if (!undoSnapshot) return;
+    const previous = new Map(undoSnapshot.transactions.map((transaction) => [transaction.id, transaction]));
+    transactionService.replaceTransactions(
+      transactionService.listTransactions().map((transaction) => previous.get(transaction.id) ?? transaction),
+    );
+    categoryRuleService.restoreCategoryRules(undoSnapshot.rules);
+    const firstId = undoSnapshot.transactions[0]?.id;
+    setUndoSnapshot(null);
+    refreshReviewData(firstId);
+    setMessage('Resposta desfeita.');
+  }
+
+  const quickSuggestions = useMemo(
+    () => (activeTransaction ? suggestReviewCategories(activeTransaction, allTransactions, categoryService.getAvailableCategories()) : []),
+    [activeTransaction, allTransactions],
+  );
+
+  const monthPicker = selectedMonth ? (
+    <>
+      <MonthSelector size="sm" value={selectedMonth} onChange={changeSelectedMonth} />
+      <button
+        style={{ fontSize: '11px', color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
+        className="transition-opacity hover:opacity-60 whitespace-nowrap"
+        type="button"
+        onClick={() => changeSelectedMonth(ALL_MONTHS)}
+      >
+        ver todos os meses
+      </button>
+    </>
+  ) : (
+    <button
+      style={{ fontSize: '12px', color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer' }}
+      className="font-medium transition-opacity hover:opacity-70 whitespace-nowrap"
+      type="button"
+      onClick={() => changeSelectedMonth(getCurrentMonthKey())}
+    >
+      todos os meses · voltar ao mês atual
+    </button>
+  );
+
+  if (!detailed && allTransactions.length > 0) {
+    return (
+      <div>
+        <ModuleHeader eyebrow="Módulo · Financeiro" title="Revisar" tabs={getFinanceTabs(pendingReviewCount)} />
+
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3" style={{ marginBottom: '12px' }}>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">{monthPicker}</div>
+          <button
+            type="button"
+            onClick={openDetailed}
+            className="text-xs transition-opacity hover:opacity-60"
+            style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
+          >
+            filtros, regras e edição detalhada →
+          </button>
+        </div>
+
+        {message ? (
+          <Toast
+            text={message}
+            onClose={() => setMessage('')}
+            actions={undoSnapshot ? [{ label: 'Desfazer', onClick: undoLastAnswer }] : []}
+          />
+        ) : null}
+
+        {activeTransaction ? (
+          <ReviewQuickCard
+            key={activeTransaction.id}
+            transaction={activeTransaction}
+            suggestions={quickSuggestions}
+            categories={categoryOptions}
+            remaining={filteredTransactions.length}
+            remember={rememberAnswer}
+            onRememberChange={setRememberAnswer}
+            onCategory={(category) =>
+              resolveQuick(category, inferKindFromCategory(category, activeTransaction.kind, activeTransaction.amount, activeTransaction.description))
+            }
+            onTransfer={() => resolveQuick(specialCategories.internalTransfer, 'transfer')}
+            onSkip={skip}
+            onDetails={openDetailed}
+          />
+        ) : (
+          <>
+            <EmptyFinanceState
+              title={selectedMonth ? `Tudo revisado em ${formatMonthLabel(selectedMonth)}.` : 'Nada para revisar.'}
+              description="Os números do mês já estão certos. Novas importações aparecem aqui quando precisarem de você."
+            />
+            {/* The queue stays on one month (by choice); a quiet pointer, not a nag, for the others. */}
+            {selectedMonth ? <ImportReviewMonths months={otherPendingMonths} /> : null}
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div>
-      <ModuleHeader eyebrow="Módulo · Financeiro" title="Revisão" tabs={getFinanceTabs(pendingReviewCount)} />
+      <ModuleHeader eyebrow="Módulo · Financeiro" title="Revisar" tabs={getFinanceTabs(pendingReviewCount)} />
+
+      <button
+        type="button"
+        onClick={openQuick}
+        className="text-xs transition-opacity hover:opacity-60"
+        style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer', marginBottom: '12px', padding: 0 }}
+      >
+        ← voltar à fila rápida
+      </button>
 
       {/* Aviso sobre pendências */}
       <p style={{ fontSize: '12px', color: 'var(--hub-warning)', marginBottom: '20px', lineHeight: 1.6 }}>
@@ -419,20 +584,20 @@ export function ReviewPage() {
             {/* Stats inline */}
             <div className="flex flex-wrap items-end gap-8" style={{ marginBottom: '20px' }}>
               <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+                <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
                   Revisão necessária
                 </p>
-                <p className="tabular-nums" style={{ fontSize: '22px', fontWeight: 300, letterSpacing: '-0.02em', color: requiredTransactions.length > 0 ? 'var(--hub-warning)' : 'var(--hub-text)' }}>
-                  {requiredTransactions.length}
+                <p className="tabular-nums" style={{ fontSize: '22px', fontWeight: 400, letterSpacing: '-0.02em', color: monthRequired.length > 0 ? 'var(--hub-warning)' : 'var(--hub-text)' }}>
+                  {monthRequired.length}
                 </p>
               </div>
               <div style={{ width: '1px', background: 'var(--hub-border)', height: '36px' }} />
               <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
+                <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
                   Opcional
                 </p>
-                <p className="tabular-nums" style={{ fontSize: '22px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
-                  {optionalTransactions.length}
+                <p className="tabular-nums" style={{ fontSize: '22px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
+                  {monthOptional.length}
                 </p>
               </div>
             </div>
@@ -445,36 +610,11 @@ export function ReviewPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <DateField
-                type="month"
-                value={selectedMonth ?? ''}
-                onChange={changeSelectedMonth}
-                ariaLabel="Mês de revisão"
-              >
-                <span className="text-[12px] font-medium uppercase tracking-[0.1em] transition-opacity hover:opacity-70" style={{ color: 'var(--hub-muted)' }}>
-                  {selectedMonth ? formatMonthLabel(selectedMonth) : 'todos os meses'}
-                </span>
-              </DateField>
-              {selectedMonth ? (
-                <button
-                  style={{ fontSize: '11px', color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer' }}
-                  className="transition-opacity hover:opacity-60 whitespace-nowrap"
-                  type="button"
-                  onClick={() => changeSelectedMonth('')}
-                >
-                  todos os meses ×
-                </button>
-              ) : null}
+              {monthPicker}
             </div>
 
-            {pendingOutsideSelectedMonth > 0 ? (
-              <p style={{ fontSize: '12px', color: 'var(--hub-warning)', marginBottom: '12px', lineHeight: 1.6 }}>
-                {pendingOutsideSelectedMonth} pendência{pendingOutsideSelectedMonth === 1 ? '' : 's'} fora deste mês.
-              </p>
-            ) : null}
-
             {/* Filtros de tipo */}
-            <div className="flex flex-wrap gap-x-5 gap-y-1.5" style={{ marginBottom: '20px' }}>
+            <div className="hub-scroll-strip flex gap-5 overflow-x-auto" style={{ marginBottom: '20px', borderBottom: '1px solid var(--hub-border)' }}>
               {filters.map((option) => {
                 const isActive = filter === option.id;
                 const count = filterCounts[option.id];
@@ -482,16 +622,8 @@ export function ReviewPage() {
                   <button
                     key={option.id}
                     type="button"
-                    className="border-0 outline-none bg-transparent cursor-pointer"
-                    style={{
-                      fontSize: '11px',
-                      fontWeight: isActive ? 600 : 400,
-                      color: isActive ? 'var(--hub-accent)' : 'var(--hub-subtle)',
-                      paddingBottom: '3px',
-                      borderBottom: isActive ? '1px solid color-mix(in srgb, var(--hub-accent) 55%, transparent)' : '1px solid transparent',
-                      transition: 'color 0.15s, border-color 0.15s',
-                      whiteSpace: 'nowrap',
-                    }}
+                    className={`hub-tab shrink-0 tabular-nums${isActive ? ' active' : ''}`}
+                    aria-pressed={isActive}
                     onClick={() => {
                       setFilter(option.id);
                       setActiveId(null);
@@ -528,7 +660,7 @@ export function ReviewPage() {
             <Card className="mb-5">
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start" style={{ marginBottom: '20px' }}>
                 <div>
-                  <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>Preview de aplicação de regras</p>
+                  <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '5px' }}>Preview de aplicação de regras</p>
                   <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', lineHeight: 1.6 }}>
                     Nenhuma alteração foi feita ainda. Confirme os lançamentos que devem receber a regra.
                   </p>
@@ -605,9 +737,7 @@ export function ReviewPage() {
             </Card>
           ) : null}
 
-          {message ? (
-            <p style={{ fontSize: '12px', color: 'var(--hub-positive)', marginBottom: '16px' }}>{message}</p>
-          ) : null}
+          {message ? <Toast text={message} onClose={() => setMessage('')} /> : null}
 
           {!activeTransaction || !draft ? (
             <EmptyFinanceState
@@ -656,7 +786,7 @@ export function ReviewPage() {
                       <a
                         className="transition-opacity hover:opacity-70"
                         style={{ fontSize: '12px', fontWeight: 500, color: 'var(--hub-accent)' }}
-                        href={withReimbursementsParams(activeTransaction.date.slice(0, 7))}
+                        href={withReimbursementsParams(transactionMonthKey(activeTransaction))}
                       >
                         Ver em Reembolsos →
                       </a>
@@ -665,7 +795,7 @@ export function ReviewPage() {
                   <div className="flex flex-col items-start gap-2 lg:items-end">
                     <strong
                       className="tabular-nums"
-                      style={{ fontSize: '20px', fontWeight: 300, letterSpacing: '-0.02em', color: activeTransaction.amount < 0 ? 'var(--hub-negative)' : 'var(--hub-positive)' }}
+                      style={{ fontSize: '20px', fontWeight: 400, letterSpacing: '-0.02em', color: activeTransaction.amount < 0 ? 'var(--hub-negative)' : 'var(--hub-positive)' }}
                     >
                       {formatCurrency(activeTransaction.amount)}
                     </strong>
@@ -685,7 +815,7 @@ export function ReviewPage() {
                 <form className="mt-4 grid gap-5" style={{ paddingTop: '16px', borderTop: '1px solid var(--hub-border)' }} onSubmit={saveAndNext}>
                   <div className="grid gap-5 md:grid-cols-2">
                     <label className="space-y-1.5">
-                      <span style={{ fontSize: '10px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Categoria</span>
+                      <span style={{ fontSize: '11px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Categoria</span>
                       <Select
                         className="w-full cursor-pointer appearance-none"
                         value={draft.category}
@@ -705,7 +835,7 @@ export function ReviewPage() {
                       </Select>
                     </label>
                     <label className="space-y-1.5">
-                      <span style={{ fontSize: '10px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Tipo</span>
+                      <span style={{ fontSize: '11px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Tipo</span>
                       <Select
                         className="w-full cursor-pointer appearance-none"
                         value={draft.kind}
@@ -720,7 +850,7 @@ export function ReviewPage() {
                     </label>
                   </div>
                   <label className="space-y-1.5">
-                    <span style={{ fontSize: '10px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Notas</span>
+                    <span style={{ fontSize: '11px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Notas</span>
                     <textarea
                       className="w-full leading-6 resize-none"
                       rows={2}
@@ -735,7 +865,6 @@ export function ReviewPage() {
                         <input
                           type="checkbox"
                           checked={draft.isInstallment}
-                          className="accent-indigo-500"
                           onChange={(e) => setDraft({ ...draft, isInstallment: e.target.checked, installmentCount: '', installmentValue: '' })}
                         />
                         <span style={{ fontSize: '12px', color: 'var(--hub-text-body)' }}>Compra parcelada</span>
@@ -743,12 +872,12 @@ export function ReviewPage() {
                       {draft.isInstallment && (() => {
                         const n = parseInt(draft.installmentCount);
                         const autoValue = !isNaN(n) && n >= 2
-                          ? (Math.abs(activeTransaction.amount) / n).toFixed(2)
+                          ? (Math.abs(activeTransaction.amount) / n).toFixed(2).replace('.', ',')
                           : '';
                         return (
                           <div className="mt-3 grid grid-cols-2 gap-4" style={{ maxWidth: '300px' }}>
                             <label className="space-y-1.5">
-                              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--hub-subtle)' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--hub-subtle)' }}>
                                 Parcelas
                               </span>
                               <input
@@ -763,7 +892,7 @@ export function ReviewPage() {
                               />
                             </label>
                             <label className="space-y-1.5">
-                              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--hub-subtle)' }}>
+                              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.10em', color: 'var(--hub-subtle)' }}>
                                 Vlr/parcela (R$)
                               </span>
                               <input
@@ -817,7 +946,7 @@ export function ReviewPage() {
                     </p>
                     <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3">
                       <label className="space-y-1.5" style={{ flex: '1 1 160px', minWidth: '140px' }}>
-                        <span style={{ fontSize: '10px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Palavra-chave</span>
+                        <span style={{ fontSize: '11px', letterSpacing: '0.10em', textTransform: 'uppercase', color: 'var(--hub-subtle)', fontWeight: 500 }}>Palavra-chave</span>
                         <input
                           className="w-full"
                           value={ruleKeyword}
@@ -826,7 +955,7 @@ export function ReviewPage() {
                       </label>
                       <button
                         className="text-sm font-medium transition-opacity hover:opacity-70"
-                        style={{ color: 'color-mix(in srgb, var(--hub-accent) 80%, transparent)', background: 'none', border: 'none', cursor: 'pointer', paddingBottom: '6px' }}
+                        style={{ color: 'var(--hub-accent)', background: 'none', border: 'none', cursor: 'pointer', paddingBottom: '6px' }}
                         type="button"
                         onClick={createRuleForCurrentTransaction}
                       >
@@ -918,7 +1047,7 @@ export function ReviewPage() {
 
               {/* Fila de transações */}
               <Card>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '12px' }}>
+                <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '12px' }}>
                   Fila atual
                   <span style={{ marginLeft: '8px', color: 'var(--hub-disabled)', fontWeight: 400, textTransform: 'none', letterSpacing: '0' }}>
                     ({filteredTransactions.length} item{filteredTransactions.length !== 1 ? 's' : ''})
@@ -962,8 +1091,8 @@ export function ReviewPage() {
 function InlineStat({ label, value, tone = 'neutral' }: { label: string; value: number; tone?: 'neutral' | 'warning' }) {
   return (
     <div>
-      <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>{label}</p>
-      <p className="tabular-nums" style={{ fontSize: '18px', fontWeight: 300, letterSpacing: '-0.02em', color: tone === 'warning' && value > 0 ? 'var(--hub-warning)' : 'var(--hub-text)' }}>{value}</p>
+      <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.1em', color: 'var(--hub-subtle)', marginBottom: '4px' }}>{label}</p>
+      <p className="tabular-nums" style={{ fontSize: '18px', fontWeight: 400, letterSpacing: '-0.02em', color: tone === 'warning' && value > 0 ? 'var(--hub-warning)' : 'var(--hub-text)' }}>{value}</p>
     </div>
   );
 }
@@ -996,7 +1125,7 @@ function RuleMatchGroup({
 }) {
   return (
     <section className="grid gap-3">
-      <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>{title}</p>
+      <p className="font-medium uppercase" style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>{title}</p>
       {matches.length === 0 ? (
         <p style={{ fontSize: '12px', color: 'var(--hub-subtle)' }}>{emptyText}</p>
       ) : (
@@ -1008,14 +1137,14 @@ function RuleMatchGroup({
           >
             <input
               checked={selectedIds.includes(match.transactionId)}
-              className="mt-1 h-4 w-4 rounded accent-indigo-500"
+              className="mt-1 h-4 w-4 rounded"
               type="checkbox"
               onChange={() => onToggle(match.transactionId)}
             />
             <span className="grid gap-2">
               <span className="flex flex-wrap items-start justify-between gap-2">
                 <strong style={{ fontSize: '13px', fontWeight: 500, color: 'var(--hub-text)' }}>{match.description}</strong>
-                <strong className="tabular-nums" style={{ fontSize: '13px', fontWeight: 300, color: match.amount < 0 ? 'var(--hub-negative)' : 'var(--hub-positive)' }}>
+                <strong className="tabular-nums" style={{ fontSize: '13px', fontWeight: 400, color: match.amount < 0 ? 'var(--hub-negative)' : 'var(--hub-positive)' }}>
                   {formatCurrency(match.amount)}
                 </strong>
               </span>

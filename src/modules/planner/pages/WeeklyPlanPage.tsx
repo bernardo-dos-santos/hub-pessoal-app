@@ -5,9 +5,11 @@ import { rebuildDailyContext } from '../../../core/context/contextBuilder';
 import { generateWeeklyPlan } from '../services/aiWeeklyPlanService';
 import { weeklyPlanService } from '../services/weeklyPlanService';
 import { routineService } from '../services/routineService';
+import { getPlannerTabs } from '../components/plannerTabs';
 import { sessionCompletionService } from '../../study/services/sessionCompletionService';
-import { ModuleHeader, type ModuleTab } from '../../../shared/ui';
+import { ModuleHeader, useConfirm, hub, tint } from '../../../shared/ui';
 import {
+  SESSION_TYPE_LABEL,
   WEEK_DAYS,
   WEEK_DAY_LABEL,
   WEEK_DAY_SHORT,
@@ -17,10 +19,6 @@ import {
   type WeeklySession,
 } from '../types/routine';
 
-const PLANNER_TABS: ModuleTab[] = [
-  { label: 'Plano semanal', to: '/planner', end: true },
-  { label: 'Rotina',        to: '/planner/rotina' },
-];
 
 // ── Grade ─────────────────────────────────────────────────────────────────────
 
@@ -56,17 +54,14 @@ const TYPE_ACCENT: Record<SessionType, string> = {
   other:  'var(--hub-muted)',
 };
 const TYPE_FILL: Record<SessionType, string> = {
-  study:  'rgba(193,99,61,0.10)',
-  review: 'rgba(158,118,134,0.12)',
-  train:  'rgba(107,122,94,0.12)',
-  rest:   'rgba(58,44,34,0.04)',
-  admin:  'rgba(180,138,62,0.12)',
-  other:  'rgba(58,44,34,0.05)',
+  study:  tint(hub.accent, 10),
+  review: tint(hub.mauve, 12),
+  train:  tint(hub.positive, 12),
+  rest:   tint(hub.text, 4),
+  admin:  tint(hub.warning, 12),
+  other:  tint(hub.text, 5),
 };
-const TYPE_LABEL: Record<SessionType, string> = {
-  study: 'Estudo', review: 'Revisão', train: 'Treino',
-  rest: 'Descanso', admin: 'Admin', other: 'Outro',
-};
+const TYPE_LABEL = SESSION_TYPE_LABEL;
 
 const PRIORITY_DOT: Record<string, string> = {
   high: 'var(--hub-negative)', medium: 'var(--hub-warning)', low: 'transparent',
@@ -90,17 +85,17 @@ function DaySessionCard({ session }: { session: WeeklySession }) {
     <button
       type="button"
       disabled={!isClickable}
-      onClick={() => isClickable && navigate(`/planner/plano-semanal/sessao/${session.id}`)}
+      onClick={() => isClickable && navigate(`/planner/semana/sessao/${session.id}`)}
       className="flex w-full items-start gap-3 py-3 text-left transition-opacity active:opacity-70 disabled:cursor-default"
       style={{ borderBottom: '1px solid var(--hub-border)' }}
     >
       <div className="w-14 shrink-0 pt-0.5">
         <p className="text-xs font-medium tabular-nums" style={{ color: 'var(--hub-text)' }}>{session.startTime}</p>
-        <p className="text-[10px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{end}</p>
+        <p className="text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{end}</p>
       </div>
       <div className="min-w-0 flex-1" style={{ borderLeft: `2px solid ${TYPE_ACCENT[type] ?? TYPE_ACCENT.other}`, paddingLeft: '10px' }}>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: TYPE_ACCENT[type] }}>
+          <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: TYPE_ACCENT[type] }}>
             {TYPE_LABEL[type]}
           </span>
           {session.priority !== 'low' && (
@@ -141,7 +136,7 @@ function DayAgenda({
             >
               <span className="block">{WEEK_DAY_SHORT[day]}</span>
               {i === todayIndex && <span className="mx-auto mt-0.5 block h-1 w-1 rounded-full" style={{ background: 'var(--hub-primary)' }} />}
-              {i !== todayIndex && dayMin > 0 && <span className="mt-0.5 block text-[9px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{fmtMins(dayMin)}</span>}
+              {i !== todayIndex && dayMin > 0 && <span className="mt-0.5 block text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{fmtMins(dayMin)}</span>}
             </button>
           );
         })}
@@ -172,17 +167,17 @@ function SessionBlock({ session }: { session: WeeklySession }) {
     <>
       {small ? (
         <div className="flex h-full items-center gap-1 overflow-hidden px-2 py-1">
-          <span className="truncate text-left text-[10px] font-medium leading-none" style={{ color: 'var(--hub-text)' }}>
+          <span className="truncate text-left text-[11px] font-medium leading-none" style={{ color: 'var(--hub-text)' }}>
             {session.topic}
           </span>
-          <span className="ml-auto shrink-0 text-[9px] tabular-nums" style={{ color: 'var(--hub-muted)' }}>
+          <span className="ml-auto shrink-0 text-[11px] tabular-nums" style={{ color: 'var(--hub-muted)' }}>
             {session.startTime}
           </span>
         </div>
       ) : (
         <div className="h-full space-y-0.5 overflow-hidden px-2 py-1.5 text-left">
           <div className="mb-0.5 flex items-center gap-1">
-            <span className="text-[9px] font-semibold uppercase tracking-wider" style={{ color: TYPE_ACCENT[type] }}>
+            <span className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: TYPE_ACCENT[type] }}>
               {TYPE_LABEL[type]}
             </span>
             {session.priority !== 'low' && (
@@ -192,11 +187,11 @@ function SessionBlock({ session }: { session: WeeklySession }) {
           <p className="line-clamp-2 text-[11px] font-medium leading-snug" style={{ color: 'var(--hub-text)' }}>
             {session.topic}
           </p>
-          <p className="text-[10px] tabular-nums" style={{ color: 'var(--hub-muted)' }}>
+          <p className="text-[11px] tabular-nums" style={{ color: 'var(--hub-muted)' }}>
             {session.startTime} – {end}
           </p>
           {isClickable && height >= 80 && (
-            <p className="mt-0.5 text-[9px]" style={{ color: 'var(--hub-subtle)' }}>toque para detalhar →</p>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--hub-subtle)' }}>toque para detalhar →</p>
           )}
         </div>
       )}
@@ -206,7 +201,7 @@ function SessionBlock({ session }: { session: WeeklySession }) {
   const blockStyle: React.CSSProperties = {
     top,
     height,
-    borderRadius: '8px',
+    borderRadius: 'var(--hub-radius-card)',
     background: TYPE_FILL[type] ?? TYPE_FILL.other,
     border: 'none',
     borderLeft: `2px solid ${TYPE_ACCENT[type] ?? TYPE_ACCENT.other}`,
@@ -219,7 +214,7 @@ function SessionBlock({ session }: { session: WeeklySession }) {
         type="button"
         className="absolute inset-x-0.5 overflow-hidden transition-opacity hover:opacity-80"
         style={blockStyle}
-        onClick={() => navigate(`/planner/plano-semanal/sessao/${session.id}`)}
+        onClick={() => navigate(`/planner/semana/sessao/${session.id}`)}
         title={`${session.topic} — clique para detalhar`}
       >
         {content}
@@ -241,7 +236,7 @@ function TimeGutter() {
     <div className="relative w-12 shrink-0 select-none" style={{ height: GRID_H }}>
       {HOURS.map((h) => (
         <div key={h} className="absolute right-2 -translate-y-2" style={{ top: (h - HOUR_START) * ROW_PX }}>
-          <span className="text-[10px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{String(h).padStart(2, '0')}h</span>
+          <span className="text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{String(h).padStart(2, '0')}h</span>
         </div>
       ))}
     </div>
@@ -273,13 +268,14 @@ function NowLine() {
 // ── WeeklyPlanPage ────────────────────────────────────────────────────────────
 
 export function WeeklyPlanPage() {
+  const confirmAction = useConfirm();
   const aiReady   = useAiAvailable();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [plan, setPlan]     = useState<WeeklyPlan | null>(() => weeklyPlanService.getCurrentPlan());
   const [loading, setLoading] = useState(false);
   const [error, setError]   = useState('');
   const [autoRegen, setAutoRegen] = useState(false);
-  const [autoOn, setAutoOn] = useState(() => weeklyPlanService.isAutoGenerateEnabled());
+  const autoOn = weeklyPlanService.isAutoGenerateEnabled();
   const hasRoutine  = routineService.hasRoutine();
   const isOutdated  = weeklyPlanService.isOutdated();
   const todayIndex  = new Date().getDay();
@@ -301,15 +297,9 @@ export function WeeklyPlanPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleAuto() {
-    const next = !autoOn;
-    weeklyPlanService.setAutoGenerate(next);
-    setAutoOn(next);
-  }
-
-  function deletePlan() {
+  async function deletePlan() {
     if (!plan) return;
-    if (!confirm(`Excluir o plano da semana de ${plan.weekOf}?\n\nAs marcações de sessões concluídas dessa semana também serão apagadas.`)) return;
+    if (!(await confirmAction(`Excluir o plano da semana de ${plan.weekOf}?\n\nAs marcações de sessões concluídas dessa semana também serão apagadas.`))) return;
     // Ordem importa: precisa do weekOf do plano antes de descartá-lo. As
     // completions são indexadas por posição, então sem limpar aqui elas
     // voltariam a valer se um plano novo fosse gerado pra mesma semana.
@@ -337,7 +327,7 @@ export function WeeklyPlanPage() {
     }
   }
 
-  const header = <ModuleHeader eyebrow="Módulo · Planejamento" title="Planner" tabs={PLANNER_TABS} />;
+  const header = <ModuleHeader eyebrow="Módulo · Planejador" title="Semana" tabs={getPlannerTabs()} />;
 
   if (!aiReady) {
     return (
@@ -378,19 +368,11 @@ export function WeeklyPlanPage() {
             <p className="mt-0.5 text-sm" style={{ color: 'var(--hub-muted)' }}>
               {plan ? weeklyPlanService.formatWeekRange(plan.weekOf) : 'Nenhuma agenda gerada ainda'}
               {plan?.source === 'auto_sunday' && (
-                <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--hub-primary)' }}>auto</span>
+                <span className="ml-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color: 'var(--hub-primary)' }}>auto</span>
               )}
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-baseline gap-5">
-            <button
-              type="button"
-              onClick={toggleAuto}
-              className="text-xs transition-opacity hover:opacity-70"
-              style={{ color: autoOn ? 'var(--hub-subtle)' : 'var(--hub-warning)', background: 'none', border: 'none', cursor: 'pointer' }}
-            >
-              {autoOn ? 'auto: ligado' : 'auto: desligado'}
-            </button>
             {plan && (
               <button
                 type="button"
@@ -422,13 +404,13 @@ export function WeeklyPlanPage() {
         )}
         {!autoOn && (
           <p className="text-xs" style={{ color: 'var(--hub-muted)' }}>
-            Geração automática desligada — nada é criado no domingo nem pelo servidor. "Gerar agenda" continua funcionando quando você quiser.
+            Geração automática desligada em Configurar — nada é criado no domingo. "Gerar agenda" continua funcionando quando você quiser.
           </p>
         )}
         {!hasRoutine && (
           <p className="text-xs" style={{ color: 'var(--hub-muted)' }}>
             Configure seus horários para uma agenda precisa.{' '}
-            <Link to="/planner/rotina" className="font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-primary)' }}>Configurar rotina →</Link>
+            <Link to="/planner/configurar" className="font-medium transition-opacity hover:opacity-70" style={{ color: 'var(--hub-primary)' }}>Configurar →</Link>
           </p>
         )}
         {error && <p className="text-xs" style={{ color: 'var(--hub-negative)' }}>✗ {error}</p>}
@@ -473,9 +455,9 @@ export function WeeklyPlanPage() {
                   const isToday = i === todayIndex;
                   const dayMin  = sessionsByDay[day].reduce((s, ss) => s + ss.durationMinutes, 0);
                   return (
-                    <div key={day} className="min-w-0 flex-1 py-2.5 text-center" style={{ borderLeft: '1px solid var(--hub-border)', background: isToday ? 'rgba(193,99,61,0.05)' : undefined }}>
+                    <div key={day} className="min-w-0 flex-1 py-2.5 text-center" style={{ borderLeft: '1px solid var(--hub-border)', background: isToday ? tint(hub.accent, 5) : undefined }}>
                       <p className="text-xs font-medium" style={{ color: isToday ? 'var(--hub-primary-strong)' : 'var(--hub-muted)' }}>{WEEK_DAY_SHORT[day]}</p>
-                      {dayMin > 0 && <p className="mt-0.5 text-[9px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{fmtMins(dayMin)}</p>}
+                      {dayMin > 0 && <p className="mt-0.5 text-[11px] tabular-nums" style={{ color: 'var(--hub-subtle)' }}>{fmtMins(dayMin)}</p>}
                       {isToday && <div className="mx-auto mt-0.5 h-1 w-1 rounded-full" style={{ background: 'var(--hub-primary)' }} />}
                     </div>
                   );
@@ -490,7 +472,7 @@ export function WeeklyPlanPage() {
                     <div
                       key={day}
                       className="relative min-w-0 flex-1"
-                      style={{ height: GRID_H, borderLeft: '1px solid var(--hub-border)', background: i === todayIndex ? 'rgba(193,99,61,0.03)' : undefined }}
+                      style={{ height: GRID_H, borderLeft: '1px solid var(--hub-border)', background: i === todayIndex ? tint(hub.accent, 3) : undefined }}
                     >
                       <GridLines />
                       {i === todayIndex && <NowLine />}
@@ -515,7 +497,7 @@ export function WeeklyPlanPage() {
               </span>
             ))}
           </div>
-          <Link to="/planner/rotina" className="text-[11px] underline-offset-2 transition-opacity hover:underline hover:opacity-70" style={{ color: 'var(--hub-muted)' }}>
+          <Link to="/planner/configurar" className="text-[11px] underline-offset-2 transition-opacity hover:underline hover:opacity-70" style={{ color: 'var(--hub-muted)' }}>
             Editar rotina
           </Link>
         </div>

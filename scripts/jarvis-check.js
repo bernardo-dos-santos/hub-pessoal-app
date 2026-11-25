@@ -26,6 +26,12 @@ import { executeMemoryTool } from '../server/jarvis/tools/memory.js';
 import { runMemoryCommand } from '../server/jarvis/memoryStore.js';
 import { PRESETS, agentParamsFor, modelCaps, webEnabledFor } from '../server/jarvis/config.js';
 import { markExternalContent } from '../server/jarvis/agent.js';
+import { isAutoApproved } from '../server/jarvis/commands.js';
+import { pushBlockedReason } from '../server/jarvis/tools/self.js';
+import { enterUserContext, OWNER_ID } from '../server/userContext.js';
+
+// O Jarvis é do dono; o servidor recusa acesso a dado sem usuário definido.
+enterUserContext(OWNER_ID);
 
 // ── Fronteira de confiança ───────────────────────────────────────────────────
 // Simula uma tool externa usando uma que já existe e é inofensiva: assim o
@@ -371,5 +377,28 @@ for (const antiga of ['remember_fact', 'forget_fact']) {
     `${antiga} deveria ter sumido junto com a memória antiga`,
   );
 }
+
+// Auto-aprovação por prefixo não pode virar porta para um segundo comando.
+assert.equal(isAutoApproved('git status --short', 3), true, 'leitura simples segue auto-aprovada no nível 3');
+for (const encadeado of [
+  'echo oi & del /q x', 'git status && rmdir /s x', 'ls | findstr x', 'cd x; del y',
+  'echo a > C:\\x.bat', 'type %USERPROFILE%\\.ssh\\id_rsa', 'echo ^& x', 'git log\ndel x',
+]) {
+  assert.equal(isAutoApproved(encadeado, 3), false, `"${encadeado}" deve ir para aprovação`);
+}
+assert.equal(isAutoApproved('echo oi & del x', 4), true, 'nível 4 libera tudo, por definição');
+assert.equal(isAutoApproved('git status', 2), false, 'abaixo do nível 3 nada é auto-aprovado');
+
+// ── Teto de pushes do tick ───────────────────────────────────────────────────
+// Em 2026-10-11 o tick mandou cinco pushes sobre o mesmo assunto em três horas;
+// o prompt pedindo contenção não bastou.
+const at = (h, m = 0) => new Date(2026, 9, 11, h, m);
+const pushedAt = (...dates) => dates.map((d) => ({ pushed: true, createdAt: d.toISOString() }));
+assert.equal(pushBlockedReason([], at(14)), null, 'sem push hoje, pode notificar');
+assert.match(pushBlockedReason(pushedAt(at(13)), at(14)) ?? '', /3h/, 'menos de 3h desde o último push bloqueia');
+assert.equal(pushBlockedReason(pushedAt(at(9)), at(14)), null, 'mais de 3h depois, pode');
+assert.match(pushBlockedReason(pushedAt(at(10), at(7)), at(15)) ?? '', /máximo/, 'o terceiro push do dia é bloqueado');
+assert.equal(pushBlockedReason([{ pushed: undefined, createdAt: at(13).toISOString() }], at(14)), null, 'nota só na caixa de entrada não conta como push');
+assert.equal(pushBlockedReason(pushedAt(new Date(2026, 9, 10, 22), new Date(2026, 9, 10, 18)), at(8)), null, 'os pushes de ontem não contam para hoje');
 
 console.log('Jarvis check passed.');

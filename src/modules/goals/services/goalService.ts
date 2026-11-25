@@ -105,6 +105,19 @@ export const goalService = {
     refreshGoalContext();
   },
 
+  /**
+   * Dias até o prazo, em dias de calendário locais (0 = vence hoje, negativo =
+   * passou). `new Date('YYYY-MM-DD')` é meia-noite UTC — 21h da véspera no
+   * Brasil —, por isso a data vira meia-noite local antes da conta.
+   */
+  daysUntilTarget(goal: Goal): number | null {
+    if (!goal.targetDate) return null;
+    const target = new Date(goal.targetDate.slice(0, 10) + 'T00:00:00');
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.round((target.getTime() - today.getTime()) / 86400000);
+  },
+
   /** % de key results concluídos (0-100). */
   getProgress(goal: Goal): number {
     if (goal.keyResults.length === 0) return goal.status === 'completed' ? 100 : 0;

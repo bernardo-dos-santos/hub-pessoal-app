@@ -2,99 +2,43 @@ import { updateDailyContext } from '../../../core/context/dailyContext';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
 import { generateId } from '../../../shared/utils/generateId';
 import { specialCategories } from '../data/specialCategories';
-import { type RawTransactionDraft } from '../types/import';
 import { type Transaction } from '../types/transaction';
-import { isMatchedReimbursement } from '../utils/financeCalculations';
-import { inferKindFromCategory, isRefundDescription, normalizeTransactionDrafts } from './transactionNormalizationService';
+import { isMatchedReimbursement, transactionMonthKey } from '../utils/financeCalculations';
+import { getCurrentMonthKey } from '../utils/financePeriod';
+import { inferKindFromCategory, isRefundDescription } from './transactionNormalizationService';
+import { localDayKey } from '../../../shared/dates/localDay';
+import {
+  isRealExpense,
+  isRealIncome,
+  isRequiredReviewTransaction,
+  isReviewPlaceholderCategory,
+  isSafeExpenseRefund,
+} from '../../../shared/finance/financeTotals.js';
 
 const transactionsStorageKey = 'finance.transactions';
+/** Imported lines the person deleted, as the bank sent them: a re-import must not bring them back. */
+const deletedImportsStorageKey = 'finance.transactions.deletedImports';
+const DELETED_IMPORTS_KEPT = 1000;
 
-const mockTransactionDrafts: RawTransactionDraft[] = [
-  {
-    id: 'sample-income-1',
-    date: '2026-05-05',
-    description: 'Recebimento exemplo',
-    originalDescription: 'Recebimento exemplo',
-    amount: 3500,
-    category: 'Renda',
-    categoryId: 'renda',
-    accountId: 'nubank-conta',
-    accountName: 'Nubank Conta',
-    institution: 'Nubank',
-    scope: 'pessoal',
-    accountType: 'checking',
-    method: 'pix',
-    source: 'sample',
-    manualCategory: true,
-  },
-  {
-    id: 'sample-expense-1',
-    date: '2026-05-06',
-    description: 'Mercado exemplo',
-    originalDescription: 'Mercado exemplo',
-    amount: -214.8,
-    category: 'Mercado',
-    categoryId: 'mercado',
-    accountId: 'nubank-conta',
-    accountName: 'Nubank Conta',
-    institution: 'Nubank',
-    scope: 'pessoal',
-    accountType: 'checking',
-    method: 'debito',
-    source: 'sample',
-    manualCategory: true,
-  },
-  {
-    id: 'sample-card-purchase-1',
-    date: '2026-05-08',
-    description: 'Compra no cartão exemplo',
-    originalDescription: 'Compra no cartão exemplo',
-    amount: -89.9,
-    category: 'Despesa a revisar',
-    categoryId: 'despesa-a-revisar',
-    accountId: 'nubank-cartao',
-    accountName: 'Nubank Cartão',
-    institution: 'Nubank',
-    scope: 'pessoal',
-    accountType: 'credit_card',
-    method: 'credito',
-    source: 'sample',
-  },
-  {
-    id: 'sample-card-payment-1',
-    date: '2026-05-10',
-    description: 'Pagamento de fatura exemplo',
-    originalDescription: 'Pagamento de fatura exemplo',
-    amount: -500,
-    category: 'Pagamento de fatura',
-    categoryId: 'pagamento-de-fatura',
-    accountId: 'nubank-conta',
-    accountName: 'Nubank Conta',
-    institution: 'Nubank',
-    scope: 'pessoal',
-    accountType: 'checking',
-    method: 'fatura',
-    source: 'sample',
-  },
-  {
-    id: 'sample-review-income-1',
-    date: '2026-05-11',
-    description: 'Pix recebido a revisar',
-    originalDescription: 'Pix recebido a revisar',
-    amount: 120,
-    category: 'Entrada a revisar',
-    categoryId: 'entrada-a-revisar',
-    accountId: 'nubank-conta',
-    accountName: 'Nubank Conta',
-    institution: 'Nubank',
-    scope: 'pessoal',
-    accountType: 'checking',
-    method: 'pix',
-    source: 'sample',
-  },
-];
+export type TransactionEdit = Partial<Pick<Transaction, 'description' | 'amount' | 'date' | 'method' | 'category' | 'kind' | 'notes' | 'needsReview'>>;
+export type SplitPart = { amount: number; category: string };
 
-const mockTransactions: Transaction[] = normalizeTransactionDrafts(mockTransactionDrafts);
+function isImportedSource(transaction: Transaction) {
+  return transaction.source !== 'manual' && transaction.source !== 'sample';
+}
+
+function asImported(transaction: Transaction): Transaction {
+  return transaction.importedAs ? { ...transaction, ...transaction.importedAs } : transaction;
+}
+
+function readDeletedImports() {
+  return storageAdapter.getItem<Transaction[]>(deletedImportsStorageKey) ?? [];
+}
+
+function writeDeletedImports(list: Transaction[]) {
+  storageAdapter.setItem(deletedImportsStorageKey, list.slice(-DELETED_IMPORTS_KEPT));
+}
+
 let memoryTransactions: Transaction[] | null = null;
 
 type CreateTransactionInput = Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'> & {
@@ -115,27 +59,6 @@ const neutralCategories = new Set<string>([
   specialCategories.cardPaymentReceived,
 ]);
 
-function isReviewCategory(transaction: Pick<Transaction, 'category'>) {
-  return transaction.category === specialCategories.incomeReview || transaction.category === specialCategories.expenseReview;
-}
-
-function isRequiredReviewTransaction(transaction: Transaction) {
-  if (isMatchedReimbursement(transaction)) {
-    return false;
-  }
-
-  if (transaction.reviewedAt && !transaction.needsReview) {
-    return false;
-  }
-
-  return (
-    transaction.needsReview ||
-    transaction.kind === 'review' ||
-    isReviewCategory(transaction) ||
-    transaction.classificationConfidence === 'low'
-  );
-}
-
 function isNeutralTransaction(transaction: Transaction) {
   return neutralKinds.has(transaction.kind) || neutralCategories.has(transaction.category);
 }
@@ -146,7 +69,7 @@ function isOptionalCheckTransaction(transaction: Transaction) {
     isNeutralTransaction(transaction) &&
     !transaction.reviewedAt &&
     !transaction.needsReview &&
-    !isReviewCategory(transaction) &&
+    !isReviewPlaceholderCategory(transaction) &&
     transaction.kind !== 'review' &&
     transaction.classificationConfidence !== 'low'
   );
@@ -181,16 +104,22 @@ export const transactionService = {
     return readTransactions();
   },
 
-  listSampleTransactions(): Transaction[] {
-    return [...mockTransactions];
-  },
-
   listPendingReviewTransactions(): Transaction[] {
     return this.listRequiredReviewTransactions();
   },
 
   listRequiredReviewTransactions(): Transaction[] {
     return readTransactions().filter(isRequiredReviewTransaction);
+  },
+
+  /**
+   * What is left to review in the current financial month — the number the
+   * Revisar badge and the alert show. Past months' pending items stay reachable
+   * by picking the month in Revisar, but no longer nag (Bernardo, 2026-11-22).
+   */
+  listCurrentMonthReviewTransactions(): Transaction[] {
+    const month = getCurrentMonthKey();
+    return readTransactions().filter((t) => isRequiredReviewTransaction(t) && transactionMonthKey(t) === month);
   },
 
   listOptionalCheckTransactions(): Transaction[] {
@@ -224,18 +153,16 @@ export const transactionService = {
     };
 
     writeTransactions([transaction, ...readTransactions()]);
-    const todayDate = new Date().toISOString().slice(0, 10);
+    const todayDate = localDayKey();
     const all = readTransactions();
     const todayTxs = all.filter((t) => t.date === todayDate);
     updateDailyContext({
       finance: {
-        expensesToday: todayTxs
-          .filter((t) => t.kind === 'expense' || t.kind === 'card_purchase')
-          .reduce((s, t) => s + Math.abs(t.amount), 0),
-        incomeToday: todayTxs
-          .filter((t) => t.kind === 'income')
-          .reduce((s, t) => s + t.amount, 0),
-        pendingReview: all.filter((t) => t.needsReview).length,
+        expensesToday:
+          todayTxs.filter(isRealExpense).reduce((s, t) => s + Math.abs(t.amount), 0) -
+          todayTxs.filter(isSafeExpenseRefund).reduce((s, t) => s + Math.abs(t.amount), 0),
+        incomeToday: todayTxs.filter(isRealIncome).reduce((s, t) => s + t.amount, 0),
+        pendingReview: all.filter((t) => isRequiredReviewTransaction(t) && transactionMonthKey(t) === getCurrentMonthKey()).length,
       },
     });
     return transaction;
@@ -265,6 +192,123 @@ export const transactionService = {
 
     writeTransactions(nextTransactions);
     return updatedTransaction;
+  },
+
+  /**
+   * A correction made by the person (Gastos). Changing date, amount or
+   * description of an imported line first records how the bank sent it.
+   */
+  editTransaction(id: string, changes: TransactionEdit): Transaction | null {
+    const transaction = this.getTransactionById(id);
+    if (!transaction) return null;
+    const touchesIdentity =
+      (changes.date !== undefined && changes.date !== transaction.date) ||
+      (changes.amount !== undefined && changes.amount !== transaction.amount) ||
+      (changes.description !== undefined && changes.description !== transaction.description);
+    const categoryChanged = changes.category !== undefined && changes.category !== transaction.category;
+    const kindChanged = changes.kind !== undefined && changes.kind !== transaction.kind;
+    const category = changes.category ?? transaction.category;
+    const kind = changes.kind ?? transaction.kind;
+    const needsReview = changes.needsReview ?? transaction.needsReview;
+    return this.updateTransaction(id, {
+      ...changes,
+      ...(touchesIdentity && isImportedSource(transaction) && !transaction.importedAs
+        ? { importedAs: { date: transaction.date, amount: transaction.amount, description: transaction.description } }
+        : {}),
+      ...(categoryChanged || kindChanged
+        ? { manualCategory: true, classificationReason: manualCorrectionReason(category, kind) }
+        : {}),
+      ...(needsReview ? { reviewedAt: undefined, reviewedBy: undefined } : transaction.needsReview ? completedReviewMetadata('transactions_page') : {}),
+    });
+  },
+
+  /** Removes it; the caller can put it back with `restoreTransaction`. */
+  deleteTransaction(id: string): Transaction | null {
+    const all = readTransactions();
+    const transaction = all.find((item) => item.id === id);
+    if (!transaction) return null;
+    writeTransactions(
+      all
+        .filter((item) => item.id !== id)
+        // A partner left pointing at nothing would stay "pareado" forever.
+        .map((item) => {
+          if (transaction.reimbursementPairId && item.reimbursementPairId === transaction.reimbursementPairId) {
+            return { ...item, reimbursementPairId: undefined, reimbursementRole: undefined, reimbursementStatus: undefined, reimbursementMatchedAt: undefined };
+          }
+          if (item.linkedTransferId === transaction.id) return { ...item, linkedTransferId: undefined };
+          return item;
+        }),
+    );
+    if (isImportedSource(transaction) && !transaction.splitFromId) {
+      writeDeletedImports([...readDeletedImports(), asImported(transaction)]);
+    }
+    return transaction;
+  },
+
+  restoreTransaction(transaction: Transaction): void {
+    writeTransactions([transaction, ...readTransactions().filter((item) => item.id !== transaction.id)]);
+    const deleted = readDeletedImports();
+    if (deleted.some((item) => item.id === transaction.id)) writeDeletedImports(deleted.filter((item) => item.id !== transaction.id));
+  },
+
+  /**
+   * One line, several categories (the market run that was half pharmacy).
+   * The original keeps the first part; the others are new lines on the same
+   * date and account. Amounts are positive; the sign follows the original.
+   */
+  splitTransaction(id: string, parts: SplitPart[]): Transaction[] {
+    const transaction = this.getTransactionById(id);
+    if (!transaction) throw new Error('Lançamento não encontrado.');
+    if (parts.length < 2) throw new Error('Divida em pelo menos duas partes.');
+    if (parts.some((part) => !(part.amount > 0) || !part.category.trim())) throw new Error('Cada parte precisa de valor e categoria.');
+    const totalCents = Math.round(Math.abs(transaction.amount) * 100);
+    const partsCents = parts.reduce((sum, part) => sum + Math.round(part.amount * 100), 0);
+    if (partsCents !== totalCents) throw new Error('As partes precisam somar o valor do lançamento.');
+
+    const sign = transaction.amount < 0 ? -1 : 1;
+    const [first, ...rest] = parts;
+    const now = new Date().toISOString();
+    const kindFor = (category: string) => inferKindFromCategory(category, transaction.kind, transaction.amount, transaction.description);
+    const original = this.editTransaction(id, {
+      amount: sign * first.amount,
+      category: first.category,
+      kind: kindFor(first.category),
+      needsReview: false,
+    });
+    const created: Transaction[] = rest.map((part) => ({
+      ...transaction,
+      id: generateId('finance-transaction'),
+      amount: sign * part.amount,
+      category: part.category,
+      kind: kindFor(part.category),
+      manualCategory: true,
+      needsReview: false,
+      classificationReason: manualCorrectionReason(part.category, kindFor(part.category)),
+      splitFromId: transaction.id,
+      importedAs: undefined,
+      reimbursementPairId: undefined,
+      reimbursementRole: undefined,
+      reimbursementStatus: undefined,
+      reimbursementMatchedAt: undefined,
+      linkedTransferId: undefined,
+      ...completedReviewMetadata('transactions_page'),
+      createdAt: now,
+      updatedAt: now,
+    }));
+    writeTransactions([...created, ...readTransactions()]);
+    return original ? [original, ...created] : created;
+  },
+
+  /**
+   * What an import compares against: every line as the bank sent it, plus the
+   * imported lines the person deleted. Split parts never came from a statement.
+   */
+  listForDuplicateCheck(): Transaction[] {
+    return [...readTransactions().filter((item) => !item.splitFromId).map(asImported), ...readDeletedImports()];
+  },
+
+  isDeletedImport(id: string): boolean {
+    return readDeletedImports().some((item) => item.id === id);
   },
 
   markTransactionReviewed(id: string): Transaction | null {
@@ -345,16 +389,5 @@ export const transactionService = {
     return transactions;
   },
 
-  seedSampleTransactions(): Transaction[] {
-    return this.replaceTransactions(this.listSampleTransactions());
-  },
 
-  resetToSampleTransactions(): Transaction[] {
-    return this.seedSampleTransactions();
-  },
-
-  clearTransactions(): void {
-    memoryTransactions = null;
-    storageAdapter.removeItem(transactionsStorageKey);
-  },
 };

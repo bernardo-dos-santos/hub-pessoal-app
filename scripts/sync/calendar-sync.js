@@ -19,7 +19,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createLogger } from '../lib/logger.js';
 import { notifySyncFailure } from '../lib/notify.js';
-import { DatabaseSync } from 'node:sqlite';
+import { openHubDb, ownerKv } from '../lib/hubDb.js';
 import { hasGoogleAuth, listAllEvents, insertEvent, deleteEvent } from '../../server/google.js';
 
 const log = createLogger('calendar-sync');
@@ -48,11 +48,10 @@ const TYPE_COLOR_ID = {
 // --- Helpers ---
 function getWeeklyPlan() {
   if (!existsSync(DB_PATH)) return null;
-  const db = new DatabaseSync(DB_PATH);
-  const row = db.prepare("SELECT value FROM kv_store WHERE key = 'study.weeklyPlan'").get();
+  const db = openHubDb(DB_PATH);
+  const plan = ownerKv(db).get('planner.weeklyPlan');
   db.close();
-  if (!row) return null;
-  try { return JSON.parse(row.value); } catch { return null; }
+  return plan;
 }
 
 function sessionToEvent(session, weekOf) {

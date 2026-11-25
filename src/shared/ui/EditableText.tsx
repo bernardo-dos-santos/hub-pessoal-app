@@ -96,7 +96,7 @@ export function EditableText({ value, onSave, children, ariaLabel, className, in
         }}
         aria-label={ariaLabel}
         title={ariaLabel}
-        className="hub-edit-pencil shrink-0 text-[10px]"
+        className="hub-edit-pencil shrink-0 text-[11px]"
         style={{ color: 'var(--hub-subtle)', background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}
       >
         ✎

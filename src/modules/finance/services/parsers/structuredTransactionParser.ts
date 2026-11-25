@@ -5,6 +5,7 @@ import {
   type RawTransactionDraft,
   type StructuredTransactionRow,
 } from '../../types/import';
+import { parseMoneyText } from '../../utils/moneyParsing';
 
 export function parseAmountFromStructuredRow(row: StructuredTransactionRow, _profile: ParserProfile) {
   const rawAmount = row.amount ?? row.value;
@@ -64,22 +65,6 @@ export function parseStructuredRows(rows: StructuredTransactionRow[], profile: P
 }
 
 function parseMoney(value: number | string) {
-  if (typeof value === 'number') {
-    return value;
-  }
-
-  const raw = String(value ?? '').trim();
-
-  if (!raw) {
-    return 0;
-  }
-
-  const negativeByParentheses = raw.startsWith('(') && raw.endsWith(')');
-  const compact = raw
-    .replace(/[^\d,.-]/g, '')
-    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
-    .replace(',', '.');
-  const parsed = Number(compact) || 0;
-
-  return negativeByParentheses ? -Math.abs(parsed) : parsed;
+  // Unreadable stays NaN here; the profile's validateRow already turned it into an error.
+  return parseMoneyText(value) ?? Number.NaN;
 }

@@ -1,4 +1,4 @@
-import { defaultAccounts } from '../data/defaultAccounts';
+import { accountService } from './accountService';
 import { specialCategories } from '../data/specialCategories';
 import {
   type AccountType,
@@ -10,10 +10,12 @@ import {
 import { type NormalizedTransactionDraft, type RawTransactionDraft } from '../types/import';
 import { containsAnyKeyword, containsKeyword, normalizeMoneyDescription } from '../utils/financeText';
 import { classifyTransactionDraft } from './categoryClassificationService';
+import { parseMoneyText } from '../utils/moneyParsing';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 function findAccount(input: Pick<RawTransactionDraft, 'accountId' | 'accountName'>) {
   if (input.accountId) {
-    const byId = defaultAccounts.find((account) => account.id === input.accountId);
+    const byId = accountService.listAccounts().find((account) => account.id === input.accountId);
 
     if (byId) {
       return byId;
@@ -22,24 +24,14 @@ function findAccount(input: Pick<RawTransactionDraft, 'accountId' | 'accountName
 
   if (input.accountName) {
     const normalizedName = normalizeMoneyDescription(input.accountName);
-    return defaultAccounts.find((account) => normalizeMoneyDescription(account.name) === normalizedName) ?? null;
+    return accountService.listAccounts().find((account) => normalizeMoneyDescription(account.name) === normalizedName) ?? null;
   }
 
   return null;
 }
 
 function parseAmount(amount: RawTransactionDraft['amount']) {
-  if (typeof amount === 'number') {
-    return amount;
-  }
-
-  const normalized = String(amount)
-    .trim()
-    .replace(/[^\d,.-]/g, '')
-    .replace(/\.(?=\d{3}(?:\D|$))/g, '')
-    .replace(',', '.');
-
-  return Number(normalized) || 0;
+  return parseMoneyText(amount) ?? 0;
 }
 
 function normalizeDate(date: string) {
@@ -49,10 +41,18 @@ function normalizeDate(date: string) {
     return value;
   }
 
-  const slashMatch = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  // "2026-11-05 23:30" / ISO with time: the date part is the day it happened —
+  // going through toISOString() turned late-night entries into the next (UTC) day.
+  const isoWithTime = value.match(/^(\d{4}-\d{2}-\d{2})[T ]/);
+  if (isoWithTime) {
+    return isoWithTime[1];
+  }
+
+  const slashMatch = value.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4})(?:\s.*)?$/);
 
   if (slashMatch) {
-    const [, day, month, year] = slashMatch;
+    const [, day, month, rawYear] = slashMatch;
+    const year = rawYear.length === 2 ? `20${rawYear}` : rawYear;
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
   }
 
@@ -62,7 +62,7 @@ function normalizeDate(date: string) {
     return value;
   }
 
-  return parsed.toISOString().slice(0, 10);
+  return localDayKey(parsed);
 }
 
 function createDraftId(input: RawTransactionDraft) {
@@ -276,5 +276,13 @@ export function normalizeTransactionDraft(input: RawTransactionDraft): Normalize
 }
 
 export function normalizeTransactionDrafts(inputs: RawTransactionDraft[]) {
-  return inputs.map(normalizeTransactionDraft);
+  // Two real, identical purchases on the same day (two Uber rides of R$ 15,90)
+  // hash to the same id: number the repeats so both survive the import.
+  const seen = new Map<string, number>();
+  return inputs.map((input) => {
+    const draft = normalizeTransactionDraft(input);
+    const count = seen.get(draft.id) ?? 0;
+    seen.set(draft.id, count + 1);
+    return count === 0 ? draft : { ...draft, id: `${draft.id}-${count + 1}` };
+  });
 }

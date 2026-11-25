@@ -1,10 +1,12 @@
+import { getFitnessTabs } from '../components/fitnessTabs';
+import { ModuleHeader } from '../../../shared/ui';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { workoutService } from '../services/workoutService';
-import { tafService } from '../services/tafService';
 import { aiWorkoutFeedbackService, type WorkoutFeedback } from '../services/aiWorkoutFeedbackService';
 import { type WorkoutType } from '../types/workout';
-import { Card, Button, Eyebrow } from '../../../shared/ui';
+import { Card, Button, Eyebrow, DateInput, hub, tint } from '../../../shared/ui';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 const WORKOUT_TYPES: { type: WorkoutType; label: string; emoji: string }[] = [
   { type: 'running',  label: 'Corrida',    emoji: '🏃' },
@@ -16,12 +18,9 @@ const WORKOUT_TYPES: { type: WorkoutType; label: string; emoji: string }[] = [
 ];
 
 function todayISO() {
-  return new Date().toISOString().split('T')[0];
+  return localDayKey();
 }
 
-const inputClass =
-  'w-full bg-transparent pb-1.5 text-sm outline-none transition-colors';
-const inputStyle = { borderBottom: '1px solid var(--hub-border-strong)', color: 'var(--hub-text)' };
 const labelStyle = { color: 'var(--hub-label)' };
 
 const trendColor: Record<string, string> = {
@@ -31,7 +30,7 @@ const trendColor: Record<string, string> = {
   first:     'var(--hub-mauve)',
 };
 
-export function LogWorkoutPage() {
+function LogWorkoutPageBody() {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<WorkoutType | null>(null);
   const [date, setDate] = useState(todayISO());
@@ -73,14 +72,11 @@ export function LogWorkoutPage() {
     setSaved(true);
     setLoadingFeedback(true);
 
-    const tafResults = tafService.getAllTestResults();
-    const tafResult = tafResults.find((r) => r.requirement.workoutType === selected) ?? null;
-
     try {
-      const fb = await aiWorkoutFeedbackService.getFeedback(savedWorkout, previous, tafResult);
+      const fb = await aiWorkoutFeedbackService.getFeedback(savedWorkout, previous);
       setFeedback(fb);
     } catch {
-      setFeedback({ message: 'Treino registrado! Continue evoluindo rumo ao CBMSC.', trend: 'steady' });
+      setFeedback({ message: 'Treino registrado! Continue evoluindo.', trend: 'steady' });
     } finally {
       setLoadingFeedback(false);
     }
@@ -99,7 +95,7 @@ export function LogWorkoutPage() {
           )}
           {feedback && (
             <div className="mt-2 w-full px-1 py-4 text-left" style={{ borderTop: '1px solid var(--hub-border)' }}>
-              <Eyebrow style={{ marginBottom: '4px' }}>Coach CBMSC</Eyebrow>
+              <Eyebrow style={{ marginBottom: '4px' }}>Coach</Eyebrow>
               <p className="text-sm leading-relaxed" style={{ color: trendColor[feedback.trend] ?? 'var(--hub-text)' }}>
                 {feedback.message}
               </p>
@@ -126,11 +122,11 @@ export function LogWorkoutPage() {
               onClick={() => setSelected(type)}
               className="flex flex-col items-center gap-1.5 py-3 text-xs font-medium transition-colors"
               style={{
-                borderRadius: '14px',
+                borderRadius: 'var(--hub-radius-card)',
                 cursor: 'pointer',
-                background: active ? 'rgba(193,99,61,0.12)' : 'transparent',
+                background: active ? tint(hub.accent, 12) : 'transparent',
                 color: active ? 'var(--hub-primary-strong)' : 'var(--hub-muted)',
-                border: `1px solid ${active ? 'rgba(193,99,61,0.30)' : 'var(--hub-border)'}`,
+                border: `1px solid ${active ? tint(hub.accent, 30) : 'var(--hub-border)'}`,
               }}
             >
               <span className="text-2xl">{emoji}</span>
@@ -147,16 +143,16 @@ export function LogWorkoutPage() {
             <>
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Distância (metros)</label>
-                <input type="number" placeholder="ex: 2800" value={distance} onChange={(e) => setDistance(e.target.value)} className={`${inputClass} text-lg font-semibold`} style={inputStyle} />
+                <input type="number" placeholder="ex: 2800" value={distance} onChange={(e) => setDistance(e.target.value)} className="w-full text-lg font-semibold" />
               </div>
               <div className="grid grid-cols-2 gap-5">
                 <div>
                   <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Minutos</label>
-                  <input type="number" placeholder="12" value={minutes} onChange={(e) => setMinutes(e.target.value)} className={`${inputClass} text-lg font-semibold`} style={inputStyle} />
+                  <input type="number" placeholder="12" value={minutes} onChange={(e) => setMinutes(e.target.value)} className="w-full text-lg font-semibold" />
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Segundos</label>
-                  <input type="number" placeholder="00" value={seconds} onChange={(e) => setSeconds(e.target.value)} className={`${inputClass} text-lg font-semibold`} style={inputStyle} />
+                  <input type="number" placeholder="00" value={seconds} onChange={(e) => setSeconds(e.target.value)} className="w-full text-lg font-semibold" />
                 </div>
               </div>
             </>
@@ -166,23 +162,23 @@ export function LogWorkoutPage() {
             <div className="grid grid-cols-2 gap-5">
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Repetições</label>
-                <input type="number" placeholder="ex: 35" value={reps} onChange={(e) => setReps(e.target.value)} className={`${inputClass} text-lg font-semibold`} style={inputStyle} />
+                <input type="number" placeholder="ex: 35" value={reps} onChange={(e) => setReps(e.target.value)} className="w-full text-lg font-semibold" />
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Séries (opcional)</label>
-                <input type="number" placeholder="ex: 3" value={sets} onChange={(e) => setSets(e.target.value)} className={`${inputClass} text-lg font-semibold`} style={inputStyle} />
+                <input type="number" placeholder="ex: 3" value={sets} onChange={(e) => setSets(e.target.value)} className="w-full text-lg font-semibold" />
               </div>
             </div>
           )}
 
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Data</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={`${inputClass} text-sm`} style={inputStyle} />
+            <DateInput className="w-full" value={date} onChange={setDate} ariaLabel="Data do treino" />
           </div>
 
           <div>
             <label className="mb-1.5 block text-xs font-medium" style={labelStyle}>Notas (opcional)</label>
-            <input type="text" placeholder="ex: Cansado, calor 30°C" value={notes} onChange={(e) => setNotes(e.target.value)} className={`${inputClass} text-sm`} style={inputStyle} />
+            <input type="text" placeholder="ex: Cansado, calor 30°C" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full text-sm" />
           </div>
 
           <Button variant="primary" onClick={handleSave} className="w-full" style={{ marginTop: '4px' }}>
@@ -191,5 +187,16 @@ export function LogWorkoutPage() {
         </div>
       )}
     </Card>
+  );
+}
+
+export function LogWorkoutPage() {
+  return (
+    <div>
+      <ModuleHeader eyebrow="Módulo · Treino" title="Registrar treino" tabs={getFitnessTabs()} />
+      <div className="space-y-6">
+        <LogWorkoutPageBody />
+      </div>
+    </div>
   );
 }

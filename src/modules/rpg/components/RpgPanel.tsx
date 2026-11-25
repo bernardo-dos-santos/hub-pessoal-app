@@ -23,7 +23,7 @@ export function RpgPanel({ children, defaultOpen = true, meta, title }: RpgPanel
           <span className="text-xs" style={{ color: 'var(--hub-subtle)' }}>{isOpen ? 'v' : '>'}</span>
           <span
             className="truncate font-medium uppercase"
-            style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}
+            style={{ fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}
           >
             {title}
           </span>

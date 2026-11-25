@@ -3,12 +3,13 @@ import { jarvisService, type ChatMessage, type ChatImage } from './jarvisService
 import { takePhotoForChat } from './camera';
 import { jarvisInboxService, type InboxItem } from './jarvisInbox';
 import { VoiceOrb } from './VoiceOrb';
-import { Orb } from './Orb';
+import { IrisMark, irisModeFor, type IrisMode } from './IrisMark';
 import { useJarvisVoice } from './JarvisVoiceContext';
 import { storageAdapter } from '../storage/storage.adapter';
 import { apiUrl } from '../config/backendConfig';
 import { consumePendingShare, isShareTargetAvailable } from './shareTarget';
 import { reportLocation } from './location';
+import { hub, tint } from '../../shared/ui';
 
 const INBOX_KIND_ICON: Record<InboxItem['kind'], string> = {
   observation: '👁',
@@ -39,7 +40,7 @@ function InboxRow({ item, onDismiss, onUndo }: { item: InboxItem; onDismiss: () 
             <button
               onClick={onUndo}
               className="transition-opacity hover:opacity-70"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-accent)', fontWeight: 500 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-accent)', fontWeight: 500 }}
             >
               desfazer
             </button>
@@ -47,7 +48,7 @@ function InboxRow({ item, onDismiss, onUndo }: { item: InboxItem; onDismiss: () 
           <button
             onClick={onDismiss}
             className="transition-opacity hover:opacity-60"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-subtle)' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-subtle)' }}
           >
             marcar como lida
           </button>
@@ -111,7 +112,7 @@ function PendingCommandRow({ cmd, onApprove, onReject, busy }: {
           lineHeight: isShell ? 1.4 : 1.5,
           color: 'var(--hub-text)',
           background: 'var(--hub-surface-muted)',
-          borderRadius: '8px',
+          borderRadius: 'var(--hub-radius-card)',
           padding: '6px 8px',
           margin: 0,
           maxHeight: '220px',
@@ -127,7 +128,7 @@ function PendingCommandRow({ cmd, onApprove, onReject, busy }: {
           onClick={onApprove}
           disabled={busy}
           className="transition-opacity hover:opacity-70 disabled:opacity-40"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-accent)', fontWeight: 500 }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-accent)', fontWeight: 500 }}
         >
           {busy ? 'executando…' : APPROVE_LABEL[kind]}
         </button>
@@ -135,11 +136,11 @@ function PendingCommandRow({ cmd, onApprove, onReject, busy }: {
           onClick={onReject}
           disabled={busy}
           className="transition-opacity hover:opacity-70 disabled:opacity-40"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-negative)' }}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-negative)' }}
         >
           recusar
         </button>
-        <span style={{ fontSize: '10px', color: 'var(--hub-subtle)' }}>
+        <span style={{ fontSize: '11px', color: 'var(--hub-subtle)' }}>
           expira em {minutosRestantes} min
         </span>
       </div>
@@ -165,10 +166,10 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         style={{
           maxWidth: '80%',
           padding: '8px 12px',
-          borderRadius: '14px',
+          borderRadius: 'var(--hub-radius-card)',
           fontSize: '13px',
           lineHeight: '1.5',
-          background: isUser ? 'rgba(193,99,61,0.13)' : 'rgba(58,44,34,0.05)',
+          background: isUser ? tint(hub.accent, 13) : tint(hub.text, 5),
           color: isUser ? 'var(--hub-text)' : 'var(--hub-text-body)',
           whiteSpace: 'pre-wrap',
         }}
@@ -177,7 +178,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
             ver jarvisService), então a marca é textual: some do olho, mas não
             some do histórico. */}
         {msg.hasImage && (
-          <span style={{ display: 'block', fontSize: '10px', color: 'var(--hub-subtle)', marginBottom: '3px' }}>
+          <span style={{ display: 'block', fontSize: '11px', color: 'var(--hub-subtle)', marginBottom: '3px' }}>
             ⌾ foto anexada
           </span>
         )}
@@ -199,6 +200,8 @@ export function JarvisChat() {
   // Texto chegando por streaming, antes de virar mensagem no histórico.
   const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // A reply just arrived: the mark plays "done" once (IrisMark settles by itself).
+  const [justReplied, setJustReplied] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(
     () => storageAdapter.getItem<boolean>('jarvis.voiceEnabled') ?? true,
   );
@@ -348,11 +351,13 @@ export function JarvisChat() {
         setStreamingText((prev) => prev + delta);
       });
       setMessages(jarvisService.getHistory());
+      setJustReplied(true);
+      window.setTimeout(() => setJustReplied(false), 1500);
       // A fala só começa com o texto completo. Disparar por pedaço picotaria a
       // voz — e o TTS cobra por caractere, então seria caro além de feio.
       if (voiceEnabled) void jarvisService.speak(reply);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Erro ao conectar com JARVIS');
+      setError(err instanceof Error ? err.message : 'Erro ao conectar com a Íris');
       jarvisService.removeMessage(optimistic.id);
       setMessages(jarvisService.getHistory());
     } finally {
@@ -380,6 +385,11 @@ export function JarvisChat() {
   }
 
   const isEmpty = messages.length === 0;
+  // One Íris for the button and the panel: the voice conversation wins, then
+  // the typed one (waiting, failed, just answered), then rest.
+  const chatMode: IrisMode = voice.active
+    ? irisModeFor(voice.state)
+    : loading ? 'thinking' : error ? 'error' : justReplied ? 'done' : 'idle';
 
   return (
     <>
@@ -392,7 +402,7 @@ export function JarvisChat() {
 
       {/* Pílula de conversa ativa — a prova visível de que a fala continua
           enquanto você navega, e o jeito de encerrar de qualquer tela. Fica à
-          ESQUERDA para nunca dividir espaço com o ✦ nem com o painel. */}
+          ESQUERDA para nunca dividir espaço com o botão da Íris nem com o painel. */}
       {voice.active && !voiceExpanded && (
         <div
           style={{
@@ -404,7 +414,7 @@ export function JarvisChat() {
             alignItems: 'center',
             gap: '10px',
             padding: '7px 12px',
-            borderRadius: 'var(--hub-radius-pill)',
+            borderRadius: 'var(--hub-radius-control)',
             background: 'var(--hub-card)',
             border: '1px solid var(--hub-border-strong)',
             boxShadow: 'var(--hub-shadow-menu)',
@@ -421,10 +431,10 @@ export function JarvisChat() {
           <button
             onClick={voice.retry}
             style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '8px' }}
-            aria-label={`Jarvis: ${voice.label}`}
+            aria-label={`Íris: ${voice.label}`}
           >
-            <Orb size={20} />
-            <span style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
+            <IrisMark size={36} mode={irisModeFor(voice.state)} />
+            <span style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--hub-subtle)' }}>
               {voice.label}
             </span>
           </button>
@@ -441,24 +451,29 @@ export function JarvisChat() {
       {/* Botão flutuante */}
       <button
         onClick={() => setOpen((o) => !o)}
-        title="JARVIS — Assistente pessoal"
+        title="Íris — assistente pessoal"
+        aria-label={open ? 'Fechar a Íris' : 'Abrir a Íris'}
+        aria-expanded={open}
         style={{
           position: 'fixed',
-          bottom: '24px',
-          right: '20px',
+          bottom: '20px',
+          right: '16px',
           zIndex: 1000,
-          background: 'none',
-          border: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '52px',
+          height: '44px',
+          background: 'var(--hub-card)',
+          border: `1px solid ${open ? 'var(--hub-accent)' : 'var(--hub-border-strong)'}`,
+          borderRadius: 'var(--hub-radius-card)',
+          boxShadow: 'var(--hub-shadow-menu)',
           cursor: 'pointer',
-          fontSize: '22px',
-          color: open ? 'var(--hub-primary)' : 'var(--hub-primary-strong)',
-          lineHeight: 1,
-          padding: '4px',
-          transition: 'color 0.2s',
+          padding: 0,
           userSelect: 'none',
         }}
       >
-        ✦
+        <IrisMark size={34} mode={chatMode} />
         {unreadInbox.length > 0 && (
           <span
             className="tabular-nums"
@@ -469,10 +484,10 @@ export function JarvisChat() {
               minWidth: '15px',
               height: '15px',
               padding: '0 3px',
-              borderRadius: '999px',
+              borderRadius: 'var(--hub-radius-control)',
               background: 'var(--hub-accent)',
-              color: '#fff',
-              fontSize: '9px',
+              color: 'var(--hub-on-accent)',
+              fontSize: '11px',
               fontWeight: 600,
               lineHeight: '15px',
               textAlign: 'center',
@@ -497,7 +512,7 @@ export function JarvisChat() {
             flexDirection: 'column',
             background: 'var(--hub-card)',
             border: '1px solid var(--hub-border-strong)',
-            borderRadius: '24px',
+            borderRadius: 'var(--hub-radius-card)',
             boxShadow: 'var(--hub-shadow-modal)',
             overflow: 'hidden',
           }}
@@ -513,8 +528,9 @@ export function JarvisChat() {
             }}
           >
             <div className="flex items-center gap-2">
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--hub-primary)' }}>✦ JARVIS</span>
-              <span style={{ fontSize: '10px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <IrisMark size={26} mode={chatMode} />
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--hub-text)' }}>Íris</span>
+              <span style={{ fontSize: '11px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
                 Assistente pessoal
               </span>
             </div>
@@ -526,8 +542,8 @@ export function JarvisChat() {
             <div className="flex items-center gap-3">
               <button
                 onClick={() => { voice.start(); setVoiceExpanded(true); }}
-                title="Falar com o Jarvis"
-                aria-label="Falar com o Jarvis"
+                title="Falar com a Íris"
+                aria-label="Falar com a Íris"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', lineHeight: 0, padding: 0, color: voice.active ? 'var(--hub-primary)' : 'var(--hub-muted)' }}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -539,15 +555,15 @@ export function JarvisChat() {
               </button>
               <button
                 onClick={toggleVoice}
-                title={voiceEnabled ? 'Voz do Jarvis: ligada' : 'Voz do Jarvis: desligada'}
-                aria-label={voiceEnabled ? 'Desligar a voz do Jarvis' : 'Ligar a voz do Jarvis'}
+                title={voiceEnabled ? 'Voz da Íris: ligada' : 'Voz da Íris: desligada'}
+                aria-label={voiceEnabled ? 'Desligar a voz da Íris' : 'Ligar a voz da Íris'}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', lineHeight: 1, padding: 0 }}
               >
                 {voiceEnabled ? '🔊' : '🔇'}
               </button>
               <button
                 onClick={() => { jarvisService.clearHistory(); setMessages([]); }}
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-subtle)', textTransform: 'uppercase', letterSpacing: '0.08em' }}
               >
                 Limpar
               </button>
@@ -562,7 +578,7 @@ export function JarvisChat() {
             // painel para fora. Rolar aqui dentro é melhor do que sumir com o
             // campo de escrita.
             <div style={{ padding: '10px 16px 2px', borderBottom: '1px solid var(--hub-border)', flexShrink: 0, maxHeight: '45%', overflowY: 'auto' }}>
-              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.13em', color: 'var(--hub-warning)' }}>
+              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.13em', color: 'var(--hub-warning)' }}>
                 Aguardando sua aprovação
               </span>
               <div className="mt-1">
@@ -584,7 +600,7 @@ export function JarvisChat() {
             // Mesmo teto: a caixa de novidades acumula texto longo do tick e
             // sozinha já ocupava quase o painel inteiro.
             <div style={{ padding: '10px 16px 2px', borderBottom: '1px solid var(--hub-border)', flexShrink: 0, maxHeight: '40%', overflowY: 'auto' }}>
-              <span style={{ fontSize: '10px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
+              <span style={{ fontSize: '11px', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
                 Novidades
               </span>
               <div className="mt-1">
@@ -638,7 +654,7 @@ export function JarvisChat() {
                 disso o próprio texto nascendo já é o indicador de progresso. */}
             {loading && !streamingText && (
               <div style={{ padding: '8px 0' }}>
-                <span style={{ fontSize: '12px', color: 'var(--hub-muted)' }}>JARVIS está pensando…</span>
+                <span style={{ fontSize: '12px', color: 'var(--hub-muted)' }}>Íris está pensando…</span>
               </div>
             )}
 
@@ -668,7 +684,7 @@ export function JarvisChat() {
                     background: 'none',
                     border: 'none',
                     cursor: 'pointer',
-                    fontSize: '10px',
+                    fontSize: '11px',
                     color: 'var(--hub-subtle)',
                     whiteSpace: 'nowrap',
                     padding: '2px 0',
@@ -693,7 +709,7 @@ export function JarvisChat() {
               <img
                 src={`data:${photo.mediaType};base64,${photo.data}`}
                 alt="Foto anexada"
-                style={{ width: '44px', height: '44px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--hub-border)' }}
+                style={{ width: '44px', height: '44px', objectFit: 'cover', borderRadius: 'var(--hub-radius-card)', border: '1px solid var(--hub-border)' }}
               />
               <span className="flex-1" style={{ fontSize: '11px', color: 'var(--hub-muted)' }}>
                 Foto anexada. Escreva o que quer saber sobre ela.
@@ -701,7 +717,7 @@ export function JarvisChat() {
               <button
                 onClick={() => setPhoto(null)}
                 className="transition-opacity hover:opacity-70"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '10px', color: 'var(--hub-negative)' }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '11px', color: 'var(--hub-negative)' }}
               >
                 remover
               </button>

@@ -16,7 +16,6 @@ export type ModuleDefinition = {
   status: ModuleStatus;
   accent: string;
   order: number;
-  showInHome: boolean;
   category: ModuleCategory;
   supportsSearch: boolean;
   supportsAiSummary: boolean;
@@ -24,6 +23,8 @@ export type ModuleDefinition = {
 };
 
 export type ModuleRouteDefinition = {
+  /** Which module the route belongs to — a module the user didn't choose has no routes. */
+  moduleId: ModuleId;
   path: string;
   element: ComponentType;
 };

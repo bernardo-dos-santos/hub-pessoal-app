@@ -1,7 +1,9 @@
 package com.bernardo.hubpessoal;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
 
@@ -12,7 +14,18 @@ public class MainActivity extends BridgeActivity {
         // Antes do super: é lá dentro que a bridge é montada, e um plugin
         // registrado depois disso não existe para o JS.
         registerPlugin(ShareTargetPlugin.class);
+        registerPlugin(AppUpdatePlugin.class);
+        // Also before: super starts loading the page, and that first request
+        // already needs the device certificate.
+        ClientCertificates.install(this);
         super.onCreate(savedInstanceState);
+        bridge.setWebViewClient(new CertificateWebViewClient(bridge));
+        // First run (or the certificate was removed): Android asks which one to
+        // use, and the page — blocked by Cloudflare until then — loads again.
+        // The host the app loads from (capacitor.config.ts → server.url).
+        String publicHost = Uri.parse(bridge.getConfig().getServerUrl()).getHost();
+        ClientCertificates.ensureChosen(this, publicHost, () -> runOnUiThread(() ->
+            WebView.clearClientCertPreferences(() -> bridge.reload())));
         handleShare(getIntent());
     }
 

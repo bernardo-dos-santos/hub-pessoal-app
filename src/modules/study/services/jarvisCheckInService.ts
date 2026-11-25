@@ -1,5 +1,6 @@
 import { updateDailyContext } from '../../../core/context/dailyContext';
 import { storageAdapter } from '../../../core/storage/storage.adapter';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 const STORAGE_KEY = 'jarvis.checkIns';
 
@@ -14,7 +15,7 @@ export type CheckIn = {
 type CheckInMap = Record<string, CheckIn>; // key = YYYY-MM-DD
 
 function todayStr(): string {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 function getMap(): CheckInMap {
@@ -50,7 +51,7 @@ export const jarvisCheckInService = {
     const map = getMap();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
+    const cutoffStr = localDayKey(cutoff);
     return Object.entries(map)
       .filter(([date, c]) => date >= cutoffStr && c.mood > 0)
       .map(([date, c]) => ({ date, ...c }))

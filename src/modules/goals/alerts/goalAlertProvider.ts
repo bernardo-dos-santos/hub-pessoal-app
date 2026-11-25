@@ -8,19 +8,15 @@ export const goalAlertProvider: AlertProvider = {
 
     if (active.length === 0) return alerts;
 
-    // Metas com prazo próximo (< 7 dias)
-    const today = new Date();
+    // Metas com prazo próximo (até 7 dias)
     for (const goal of active) {
-      if (!goal.targetDate) continue;
-      const daysLeft = Math.round(
-        (new Date(goal.targetDate).getTime() - today.getTime()) / 86400000,
-      );
-      if (daysLeft <= 7 && daysLeft >= 0) {
+      const daysLeft = goalService.daysUntilTarget(goal);
+      if (daysLeft !== null && daysLeft <= 7 && daysLeft >= 0) {
         alerts.push({
           id: `goal-deadline-${goal.id}`,
           moduleId: 'goals',
           severity: daysLeft <= 2 ? 'warning' : 'info',
-          title: `Meta "${goal.title}" vence em ${daysLeft === 0 ? 'hoje' : `${daysLeft} dia(s)`}`,
+          title: `Meta "${goal.title}" vence ${daysLeft === 0 ? 'hoje' : `em ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}`}`,
           description: `${goalService.getProgress(goal)}% concluída`,
           actionLabel: 'Ver meta',
           actionRoute: `/metas/${goal.id}`,

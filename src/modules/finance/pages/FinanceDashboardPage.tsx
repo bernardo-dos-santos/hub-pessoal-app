@@ -1,65 +1,60 @@
 import { useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ModuleHeader, Card } from '../../../shared/ui';
+import { ModuleAttentionCard } from '../../../core/alerts/ModuleAttentionCard';
+import { financeAlertProvider } from '../alerts/financeAlertProvider';
 import { getFinanceTabs } from '../components/financeTabs';
 import { MonthSelector } from '../components/MonthSelector';
 import { EmptyFinanceState } from '../components/EmptyFinanceState';
-import { budgetService } from '../services/budgetService';
-import { cardService } from '../services/cardService';
+import { CategorySpendingCard } from '../components/CategorySpendingCard';
 import { financeSummaryService } from '../services/financeSummaryService';
 import { invoiceService } from '../services/invoiceService';
+import { listUpcomingFixedCosts } from '../services/fixedCostService';
 import { reimbursementService } from '../services/reimbursementService';
 import { transactionService } from '../services/transactionService';
-import {
-  filterTransactionsBySelectedMonth,
-  isMatchedReimbursement,
-} from '../utils/financeCalculations';
+import { financialMonthRange, isInFinancialMonth } from '../../../shared/finance/financeMonth.js';
 import { formatCurrency } from '../utils/financeFormatters';
 import {
   formatMonthLabel,
   getCurrentMonthKey,
   getMonthKeyFromQuery,
+  getMonthStartDay,
   withMonthAndCategoryParams,
   withMonthParam,
   withReimbursementsParams,
 } from '../utils/financePeriod';
 import type { MonthlyEvolutionPoint } from '../types/finance';
 
+const DAY_MS = 86_400_000;
+const shortDate = new Intl.DateTimeFormat('pt-BR', { day: 'numeric', month: 'short' });
+
+/** Days from today to the end of the financial month, today included. */
+function daysLeftInMonth(monthKey: string) {
+  const { end } = financialMonthRange(monthKey, getMonthStartDay());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return { end, days: Math.round((new Date(`${end}T00:00:00`).getTime() - today) / DAY_MS) + 1 };
+}
+
+const sectionLabel = { fontSize: '11px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' } as const;
+
+/**
+ * Resumo — the module's answer first ("how much is left and what can I still
+ * spend"), what needs the user beside it, details below.
+ */
 export function FinanceDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const selectedMonth = getMonthKeyFromQuery(searchParams.get('month'));
   const isCurrentMonth = selectedMonth === getCurrentMonthKey();
-  const pendingReviewCount = transactionService.listRequiredReviewTransactions().length;
+  const pendingReviewCount = transactionService.listCurrentMonthReviewTransactions().length;
 
   const transactions = transactionService.listTransactions();
-  const monthlyTransactions = filterTransactionsBySelectedMonth(transactions, selectedMonth)
-    .filter((t) => !isMatchedReimbursement(t));
   const summary = financeSummaryService.getFinanceSummary(selectedMonth);
   const monthlyEvolution = financeSummaryService.getMonthlyEvolution(selectedMonth, 6);
-  const monthlyComparison = financeSummaryService.getMonthlyComparison(selectedMonth);
-  const categoryExpenses = useMemo(
-    () =>
-      financeSummaryService
-        .getCategoryExpenses(selectedMonth)
-        .filter((item) => item.amount > 0)
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 5),
-    [selectedMonth, transactions],
-  );
-  const categoryComparison = useMemo(
-    () => {
-      const data = financeSummaryService.getMonthlyCategoryComparison(selectedMonth);
-      return new Map(data.map((item) => [item.category, item]));
-    },
-    [selectedMonth, transactions],
-  );
-  const budgetSummary = budgetService.getBudgetsSummary(transactions, selectedMonth);
-  const reimbursementPairs = reimbursementService
+  const balanceDelta = financeSummaryService.getMonthlyComparison(selectedMonth).deltas.balance.difference;
+  const reimbursementCount = reimbursementService
     .listReimbursementPairs()
-    .filter((pair) => pair.refund.date.startsWith(selectedMonth));
-
-  const balanceDelta = monthlyComparison.deltas.balance.difference;
-  const incomeDelta = monthlyComparison.deltas.income.difference;
+    .filter((pair) => isInFinancialMonth(pair.refund.date, selectedMonth, getMonthStartDay())).length;
 
   function changeSelectedMonth(month: string) {
     const nextSearchParams = new URLSearchParams(searchParams);
@@ -67,439 +62,247 @@ export function FinanceDashboardPage() {
     setSearchParams(nextSearchParams);
   }
 
-  // ── Cartão de crédito — fatura e limite (só mês atual) ─────────────────
-  const cardInfo = useMemo(() => {
-    if (!isCurrentMonth) return null;
-    const card = cardService.listCards().find((c) => c.type === 'credit' && c.isActive);
-    // Fallback: usa cardPurchases do summary quando cartão não tem fechamento configurado
-    const cardPurchasesTotal = summary.cardPurchases;
-    if (!card && cardPurchasesTotal === 0) return null;
-    const invoice = invoiceService.getCurrentInvoice();
-    const invoiceTotal = invoice?.total ?? 0;
-    // Se não há fatura derivada mas há compras no mês, mostra o total do mês como referência
-    const effectiveTotal = invoiceTotal > 0 ? invoiceTotal : cardPurchasesTotal;
-    if (effectiveTotal === 0 && (card?.limit == null)) return null;
+  // The answer under the big number: how much per day keeps the month positive.
+  const answer = useMemo(() => {
+    if (summary.balance < 0) {
+      return { text: `Você gastou ${formatCurrency(-summary.balance)} a mais do que recebeu${isCurrentMonth ? ' até agora' : ''}.`, tone: 'var(--hub-negative)' };
+    }
+    if (!isCurrentMonth) {
+      return { text: summary.transactionCount > 0 ? 'Fechou no azul.' : 'Nenhum lançamento neste mês.', tone: 'var(--hub-muted)' };
+    }
+    if (summary.income <= 0) {
+      return { text: 'Nenhuma entrada ainda neste mês — o que sobra aparece quando cair o primeiro dinheiro.', tone: 'var(--hub-muted)' };
+    }
+    const { end, days } = daysLeftInMonth(selectedMonth);
+    if (days <= 0) return null;
+    const endLabel = shortDate.format(new Date(`${end}T12:00:00`));
+    // Bills that come back every month and haven't been paid yet are already spoken for.
+    const fixed = listUpcomingFixedCosts(transactions, selectedMonth);
+    const reserved = fixed.reduce((sum, item) => sum + item.amount, 0);
+    const free = summary.balance - reserved;
+    const names = fixed.slice(0, 3).map((item) => item.merchant).join(', ') + (fixed.length > 3 ? '…' : '');
+    if (free <= 0) {
+      return {
+        text: `As contas fixas que ainda vêm (${formatCurrency(reserved)}: ${names}) já levam o que sobrou — segure os gastos até ${endLabel}.`,
+        tone: 'var(--hub-warning)',
+      };
+    }
     return {
-      cardName: card?.name ?? 'Cartão de crédito',
-      cardLimit: card?.limit ?? null,
-      invoiceTotal: effectiveTotal,
-      invoiceDueDate: invoice?.dueDate ?? null,
-      invoiceIsExact: invoiceTotal > 0, // true = fatura real derivada; false = soma do mês
-      limitAvailable: card?.limit != null ? card.limit - effectiveTotal : null,
+      text: `Dá para gastar ${formatCurrency(free / days)} por dia até ${endLabel} e fechar no azul`
+        + (reserved > 0 ? `, já separando ${formatCurrency(reserved)} de contas fixas que ainda vêm (${names}).` : '.'),
+      tone: 'var(--hub-text-body)',
     };
+  }, [isCurrentMonth, selectedMonth, summary.balance, summary.income, summary.transactionCount, transactions]);
+
+  // Credit card — the bill to pay (closed, unpaid) or the open one, and the limit
+  // really left (current month only). Same numbers as the Cartão tab.
+  // One entry per card; without a registered card, the month's credit purchases.
+  const cardInfos = useMemo(() => {
+    if (!isCurrentMonth) return [];
+    const usages = invoiceService.listCardUsages();
+    if (usages.length === 0 && summary.cardPurchases === 0) return [];
+    return (usages.length > 0 ? usages : [null]).map((usage) => {
+    const bill = usage?.toPay ?? usage?.open ?? null;
+    const total = bill ? bill.total : summary.cardPurchases;
+    return {
+      id: usage?.card.id ?? 'none',
+      name: usage?.card.name ?? 'Cartão de crédito',
+      limit: usage?.card.limit ?? null,
+      free: usage?.free ?? null,
+      used: usage?.used ?? total,
+      total,
+      label: usage?.toPay ? 'fatura fechada a pagar' : bill ? 'fatura aberta' : 'compras no crédito neste mês',
+      toPay: Boolean(usage?.toPay),
+      closingDate: usage?.toPay ? null : bill?.closingDate ?? null,
+      dueDate: bill?.dueDate ?? null,
+    };
+    });
   }, [isCurrentMonth, summary.cardPurchases]);
 
-  // ── Projeção de fim de mês (só para o mês atual) ────────────────────────
-  const projection = useMemo(() => {
-    if (!isCurrentMonth || monthlyTransactions.length === 0) return null;
-    const today = new Date();
-    const dayOfMonth = today.getDate();
-    if (dayOfMonth < 3) return null; // poucos dados para projetar
-    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-    const daysRemaining = daysInMonth - dayOfMonth;
-    if (daysRemaining <= 0) return null;
-    const dailyAvg = summary.cashExpenses / dayOfMonth;
-    const projected = summary.cashExpenses + dailyAvg * daysRemaining;
-    return { dailyAvg, projected, daysRemaining };
-  }, [isCurrentMonth, monthlyTransactions.length, summary.cashExpenses]);
+  const header = (
+    <ModuleHeader
+      eyebrow="Módulo · Financeiro"
+      title="Resumo"
+      tabs={getFinanceTabs(pendingReviewCount)}
+      right={<MonthSelector value={selectedMonth} onChange={changeSelectedMonth} />}
+    />
+  );
+
+  if (transactions.length === 0) {
+    return (
+      <div>
+        {header}
+        <EmptyFinanceState
+          title="Nenhuma transação ainda."
+          description="Importe o extrato do banco (CSV) para o Olimpo montar o resumo do seu mês."
+          action={{ label: 'Importar extrato', to: '/financeiro/configurar/importar' }}
+        />
+      </div>
+    );
+  }
 
   return (
     <div>
-      <ModuleHeader
-        eyebrow="Módulo · Financeiro"
-        title="Painel"
-        tabs={getFinanceTabs(pendingReviewCount)}
-       
-        right={<MonthSelector value={selectedMonth} onChange={changeSelectedMonth} />}
-      />
+      {header}
 
-      {transactions.length === 0 ? (
-        <EmptyFinanceState
-          title="Nenhuma transação local ainda."
-          description="Importe um CSV para preencher o resumo financeiro."
-          action={{ label: 'Importar CSV', to: '/financeiro/importar' }}
-        />
-      ) : (
-        <>
-          {/* ── Hero — resultado principal + receitas/gastos/status ────── */}
-          <Card className="mb-5">
-            <p
-              className="font-medium uppercase"
-              style={{ fontSize: '11px', letterSpacing: '0.14em', color: 'var(--hub-subtle)', marginBottom: '12px' }}
-            >
-              {isCurrentMonth ? 'Disponível pra gastar' : `Resultado — ${formatMonthLabel(selectedMonth)}`}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)] lg:items-start">
+        <div className="flex min-w-0 flex-col gap-5">
+          {/* The answer */}
+          <Card hero>
+            <p className="font-medium uppercase" style={{ ...sectionLabel, marginBottom: '10px' }}>
+              {isCurrentMonth ? 'Sobrou até agora' : `Sobrou em ${formatMonthLabel(selectedMonth)}`}
             </p>
             <p
               className="leading-none tabular-nums"
-              style={{
-                fontSize: '58px',
-                fontWeight: 300,
-                letterSpacing: '-0.03em',
-                color: summary.balance >= 0 ? 'var(--hub-text)' : 'var(--hub-negative)',
-                marginBottom: '11px',
-              }}
+              style={{ fontSize: 'clamp(34px, 10vw, 52px)', fontWeight: 400, letterSpacing: '-0.03em', color: summary.balance >= 0 ? 'var(--hub-positive)' : 'var(--hub-negative)' }}
             >
               {formatCurrency(summary.balance)}
             </p>
-            {balanceDelta !== 0 && (
-              <p style={{ fontSize: '12px', color: balanceDelta > 0 ? 'var(--hub-positive)' : 'var(--hub-negative)', letterSpacing: '0.01em' }}>
-                {balanceDelta > 0 ? '+' : ''}
-                {formatCurrency(balanceDelta)} {balanceDelta > 0 ? 'acima' : 'abaixo'} do mês anterior
+            {answer ? <p style={{ fontSize: '14px', color: answer.tone, marginTop: '12px', lineHeight: 1.5 }}>{answer.text}</p> : null}
+            {/* A month in progress against a whole one is always "a mais": compare closed months only. */}
+            {balanceDelta !== 0 && !isCurrentMonth ? (
+              <p className="tabular-nums" style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginTop: '4px' }}>
+                {formatCurrency(Math.abs(balanceDelta))} {balanceDelta > 0 ? 'a mais' : 'a menos'} que o mês anterior
               </p>
-            )}
-            {/* Crédito não pago ainda: mostra pendência sem deduzir do saldo */}
-            {isCurrentMonth && summary.cardPurchases > 0 && summary.cardPayments === 0 && (
-              <p style={{ fontSize: '11px', color: 'var(--hub-disabled)', marginTop: '8px' }}>
-                <span className="tabular-nums">{formatCurrency(summary.cardPurchases)}</span>
-                {' '}em crédito · saldo cai ao pagar a fatura
-              </p>
-            )}
-            {projection && (
-              <p style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginTop: '8px' }}>
-                <span style={{ color: 'var(--hub-subtle)' }}>média diária </span>
-                <span className="tabular-nums" style={{ color: 'var(--hub-text-body)' }}>
-                  {formatCurrency(projection.dailyAvg)}
-                </span>
-                <span style={{ color: 'var(--hub-disabled)' }}> · projeção </span>
-                <span
-                  className="tabular-nums"
-                  style={{ color: projection.projected > summary.income ? 'var(--hub-negative)' : 'var(--hub-text-body)' }}
-                >
-                  {formatCurrency(projection.projected)}
-                </span>
-                <span style={{ fontSize: '10px', color: 'var(--hub-disabled)', marginLeft: '4px' }}>
-                  (inclui fixos)
-                </span>
-              </p>
-            )}
+            ) : null}
 
             <div
-              className="flex flex-wrap items-start"
-              style={{ gap: '44px', marginTop: '32px', paddingTop: '28px', borderTop: '1px solid var(--hub-border)' }}
+              className="flex flex-wrap items-baseline tabular-nums"
+              style={{ gap: '8px 28px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--hub-border)', fontSize: '13px' }}
             >
-              {/* Receitas */}
-              <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-subtle)', marginBottom: '7px' }}>
-                  Receitas
-                </p>
-                <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-text)' }}>
-                  {formatCurrency(summary.income)}
-                </p>
-                {incomeDelta !== 0 && (
-                  <p style={{ fontSize: '11px', color: 'var(--hub-positive)', marginTop: '5px', opacity: 0.75 }}>
-                    {incomeDelta > 0 ? '+' : ''}
-                    {formatCurrency(incomeDelta)} de {getPrevMonthLabel(selectedMonth)}
-                  </p>
-                )}
-              </div>
-
-              <div className="shrink-0" style={{ width: '1px', background: 'var(--hub-border)', height: '50px', marginTop: '15px' }} />
-
-              {/* Gastos — débito/PIX apenas */}
-              <div>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-subtle)', marginBottom: '7px' }}>
-                  Gastos
-                </p>
-                <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-negative)' }}>
-                  {formatCurrency(summary.cashExpenses)}
-                </p>
-                {summary.refundAdjustments ? (
-                  <p style={{ fontSize: '11px', color: 'var(--hub-negative)', marginTop: '5px', opacity: 0.6 }}>
-                    {formatCurrency(summary.refundAdjustments)} abatidos em reembolsos
-                  </p>
-                ) : null}
-              </div>
-
-              {/* Pgto. Fatura — cash outflow separado */}
-              {summary.cardPayments > 0 && (
-                <>
-                  <div className="shrink-0" style={{ width: '1px', background: 'var(--hub-border)', height: '50px', marginTop: '15px' }} />
-                  <div>
-                    <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.12em', color: 'var(--hub-subtle)', marginBottom: '7px' }}>
-                      Pgto. Fatura
-                    </p>
-                    <p className="tabular-nums" style={{ fontSize: '24px', fontWeight: 300, letterSpacing: '-0.02em', color: 'var(--hub-negative)' }}>
-                      {formatCurrency(summary.cardPayments)}
-                    </p>
-                  </div>
-                </>
-              )}
-
-              {/* Status — direita */}
-              <div className="ml-auto flex flex-col items-end" style={{ gap: '8px', paddingTop: '3px' }}>
-                {summary.requiredReviewCount > 0 && (
-                  <Link
-                    to={withMonthParam('/financeiro/revisao', selectedMonth)}
-                    className="flex items-center transition-opacity hover:opacity-80"
-                    style={{ gap: '6px', cursor: 'pointer' }}
-                  >
-                    <span
-                      className="shrink-0 rounded-full"
-                      style={{ width: '5px', height: '5px', background: 'var(--hub-warning)' }}
-                    />
-                    <span style={{ fontSize: '11px', color: 'var(--hub-text-body)' }}>
-                      {summary.requiredReviewCount} pendência{summary.requiredReviewCount !== 1 ? 's' : ''}
-                    </span>
-                  </Link>
-                )}
-                {reimbursementPairs.length > 0 && (
-                  <Link
-                    to={withReimbursementsParams(selectedMonth)}
-                    className="transition-opacity hover:opacity-80"
-                    style={{ fontSize: '11px', color: 'var(--hub-muted)' }}
-                  >
-                    {reimbursementPairs.length} reembolso{reimbursementPairs.length !== 1 ? 's' : ''} pareado{reimbursementPairs.length !== 1 ? 's' : ''}
-                  </Link>
-                )}
-                <span style={{ fontSize: '11px', color: 'var(--hub-muted)' }}>
-                  {summary.transactionCount} lançamento{summary.transactionCount !== 1 ? 's' : ''}
-                </span>
-              </div>
+              <span style={{ color: 'var(--hub-subtle)' }}>
+                Recebi <span style={{ color: 'var(--hub-text)' }}>{formatCurrency(summary.income)}</span>
+              </span>
+              <Link to={withMonthParam('/financeiro/gastos', selectedMonth)} className="transition-opacity hover:opacity-70" style={{ color: 'var(--hub-subtle)' }}>
+                Gastei <span style={{ color: 'var(--hub-text)' }}>{formatCurrency(summary.expenses)}</span>
+              </Link>
+              {summary.cardPurchases > 0 ? (
+                <span style={{ color: 'var(--hub-subtle)' }}>{formatCurrency(summary.cardPurchases)} no cartão</span>
+              ) : null}
+              {summary.refundAdjustments ? (
+                <span style={{ color: 'var(--hub-subtle)' }}>{formatCurrency(summary.refundAdjustments)} de reembolsos abatidos</span>
+              ) : null}
             </div>
           </Card>
 
-          {/* ── Cartão de crédito ────────────────────────────────────────── */}
-          {cardInfo && (cardInfo.invoiceTotal > 0 || cardInfo.cardLimit != null) && (
-            <Card className="mb-5">
-              <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '16px' }}>
-                Cartão
+          {/* On a phone what needs the user comes right after the answer. */}
+          <ModuleAttentionCard provider={financeAlertProvider} className="lg:hidden" />
+
+          <CategorySpendingCard
+            month={selectedMonth}
+            footer={{ label: 'ver todos os gastos', to: withMonthParam('/financeiro/gastos', selectedMonth) }}
+          />
+
+          {monthlyEvolution.length > 0 ? (
+            <Card>
+              <p className="font-medium uppercase" style={{ ...sectionLabel, marginBottom: '6px' }}>
+                Quanto sobrou nos últimos meses
               </p>
-              <div className="flex flex-wrap" style={{ gap: '28px' }}>
-                {/* Fatura / compras no crédito */}
-                {cardInfo.invoiceTotal > 0 && (
-                  <div>
-                    <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
-                      {cardInfo.invoiceIsExact ? 'Fatura em aberto' : 'Compras no crédito'}
-                    </p>
-                    <p className="tabular-nums" style={{ fontSize: '20px', fontWeight: 300, color: 'var(--hub-negative)', letterSpacing: '-0.01em' }}>
-                      {formatCurrency(cardInfo.invoiceTotal)}
-                    </p>
-                    <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', marginTop: '3px' }}>
-                      {cardInfo.invoiceDueDate
-                        ? `vence ${new Date(cardInfo.invoiceDueDate + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} · `
-                        : ''}
-                      saldo cai ao pagar; limite é restaurado
-                    </p>
-                  </div>
-                )}
-                {/* Limite disponível */}
-                {cardInfo.cardLimit != null && (
-                  <div>
-                    <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', marginBottom: '4px' }}>
-                      Limite disponível
-                    </p>
-                    <p className="tabular-nums" style={{ fontSize: '20px', fontWeight: 300, color: 'var(--hub-text)', letterSpacing: '-0.01em' }}>
-                      {formatCurrency(cardInfo.limitAvailable ?? 0)}
-                    </p>
-                    <p style={{ fontSize: '10px', color: 'var(--hub-subtle)', marginTop: '3px' }}>
-                      de {formatCurrency(cardInfo.cardLimit)} total
-                      {' · '}compras reduzem o limite, não o saldo
-                    </p>
-                  </div>
-                )}
+              <EvolutionList data={monthlyEvolution} />
+            </Card>
+          ) : null}
+        </div>
+
+        <div className="flex min-w-0 flex-col gap-5">
+          <ModuleAttentionCard provider={financeAlertProvider} className="hidden lg:block" />
+
+          {cardInfos.map((cardInfo) => (
+            <Card key={cardInfo.id}>
+              <div className="flex items-baseline justify-between">
+                <p className="font-medium uppercase" style={sectionLabel}>{cardInfo.name}</p>
+                <Link to={cardInfos.length > 1 ? `/financeiro/cartao?card=${cardInfo.id}` : '/financeiro/cartao'} className="text-xs transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+                  fatura →
+                </Link>
               </div>
-              {/* Nota explicativa quando só há fatura mas não limite configurado */}
-              {cardInfo.cardLimit == null && cardInfo.invoiceTotal > 0 && (
-                <p style={{ fontSize: '10px', color: 'var(--hub-disabled)', marginTop: '12px' }}>
-                  Compras no crédito reduzem o limite do cartão, não o saldo. O saldo cai ao pagar a fatura.
-                  {' '}Configure o limite em Configurações para ver o limite disponível.
-                </p>
+              <p className="tabular-nums" style={{ fontSize: '22px', fontWeight: 400, letterSpacing: '-0.02em', color: 'var(--hub-text)', marginTop: '8px' }}>
+                {formatCurrency(cardInfo.total)}
+              </p>
+              <p className="tabular-nums" style={{ fontSize: '12px', color: 'var(--hub-subtle)', marginTop: '2px' }}>
+                <span style={{ color: cardInfo.toPay ? 'var(--hub-warning)' : undefined }}>{cardInfo.label}</span>
+                {cardInfo.closingDate ? ` · fecha ${shortDate.format(new Date(`${cardInfo.closingDate}T12:00:00`))}` : ''}
+                {cardInfo.dueDate ? ` · vence ${shortDate.format(new Date(`${cardInfo.dueDate}T12:00:00`))}` : ''}
+              </p>
+              {cardInfo.limit != null && cardInfo.free != null ? (
+                <>
+                  <div style={{ height: '4px', marginTop: '12px', background: 'var(--hub-track)', borderRadius: 'var(--hub-radius-control)' }}>
+                    <div
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Math.round((cardInfo.used / cardInfo.limit) * 100)))}%`,
+                        height: '4px',
+                        borderRadius: 'var(--hub-radius-control)',
+                        background: cardInfo.free < 0 ? 'var(--hub-negative)' : 'var(--hub-accent)',
+                      }}
+                    />
+                  </div>
+                  <p className="tabular-nums" style={{ fontSize: '12px', color: cardInfo.free < 0 ? 'var(--hub-negative)' : 'var(--hub-subtle)', marginTop: '6px' }}>
+                    {cardInfo.free < 0 ? `${formatCurrency(-cardInfo.free)} acima do limite` : `${formatCurrency(cardInfo.free)} de limite livre`}
+                  </p>
+                </>
+              ) : (
+                <Link to="/financeiro/configurar" className="mt-2 inline-block text-xs transition-opacity hover:opacity-70" style={{ color: 'var(--hub-accent)' }}>
+                  informar o limite →
+                </Link>
               )}
             </Card>
-          )}
+          ))}
 
-          {/* ── Alertas de contexto ──────────────────────────────────────── */}
-          {(monthlyTransactions.length === 0 || summary.pendingIncomeReview > 0 || summary.pendingExpenseReview > 0 || budgetSummary.exceeded > 0) && (
-            <ul style={{ marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {monthlyTransactions.length === 0 && (
-                <li style={{ fontSize: '11px', color: 'var(--hub-muted)' }}>
-                  Nenhuma transação encontrada para este mês.
-                </li>
-              )}
-              {summary.pendingIncomeReview > 0 && (
-                <li style={{ fontSize: '11px', color: 'var(--hub-warning)' }}>
-                  Entradas a revisar ainda não contam como renda.
-                </li>
-              )}
-              {summary.pendingExpenseReview > 0 && (
-                <li style={{ fontSize: '11px', color: 'var(--hub-warning)' }}>
-                  Despesas a revisar podem alterar os gastos reais.
-                </li>
-              )}
-              {budgetSummary.exceeded > 0 && (
-                <li style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--hub-negative) 90%, transparent)' }}>
-                  <Link to={withMonthParam('/financeiro/orcamentos', selectedMonth)} className="hover:opacity-80 transition-opacity">
-                    {budgetSummary.exceeded} orçamento{budgetSummary.exceeded !== 1 ? 's' : ''} excedido{budgetSummary.exceeded !== 1 ? 's' : ''} →
-                  </Link>
-                </li>
-              )}
-            </ul>
-          )}
-
-          {/* ── Grid: maiores gastos + evolução ──────────────────────────── */}
-          <div className="grid gap-4 xl:grid-cols-2">
-            {/* Maiores gastos */}
-            {categoryExpenses.length > 0 && (
-              <Card>
-                <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)', marginBottom: '20px' }}>
-                  Maiores gastos
-                </p>
-                {categoryExpenses.map((item, i) => {
-                  const maxAmount = categoryExpenses[0]?.amount ?? 1;
-                  const pct = Math.round((item.amount / maxAmount) * 100);
-                  const trend = categoryComparison.get(item.category);
-                  const trendPct = trend?.percentChange ?? null;
-                  return (
-                    <Link
-                      key={item.category}
-                      to={withMonthAndCategoryParams('/financeiro/transacoes', selectedMonth, item.category)}
-                      className="group block"
-                      style={{ marginBottom: i === categoryExpenses.length - 1 ? 0 : '20px' }}
-                    >
-                      <div className="flex items-baseline justify-between" style={{ marginBottom: '7px' }}>
-                        <span
-                          className="transition-colors group-hover:opacity-80"
-                          style={{ fontSize: '14px', color: 'var(--hub-text-body)' }}
-                        >
-                          {item.category}
-                        </span>
-                        <div className="flex items-baseline" style={{ gap: '9px' }}>
-                          {trendPct !== null && Math.abs(trendPct) >= 5 && (
-                            <span
-                              className="tabular-nums"
-                              style={{ fontSize: '10px', color: trendPct > 0 ? 'var(--hub-negative)' : 'var(--hub-positive)', opacity: 0.80 }}
-                            >
-                              {trendPct > 0 ? '↑' : '↓'}{Math.round(Math.abs(trendPct))}%
-                            </span>
-                          )}
-                          <span className="tabular-nums" style={{ fontSize: '13px', color: 'var(--hub-text-body)', letterSpacing: '-0.01em' }}>
-                            {formatCurrency(item.amount)}
-                          </span>
-                          <span style={{ fontSize: '11px', color: 'var(--hub-subtle)' }}>
-                            {pct}%
-                          </span>
-                        </div>
-                      </div>
-                      <div className="overflow-hidden rounded-full" style={{ height: '2px', background: 'var(--hub-border)' }}>
-                        <div
-                          className="h-full rounded-full transition-opacity group-hover:opacity-70"
-                          style={{ width: `${pct}%`, background: 'var(--hub-accent)', opacity: 0.52 }}
-                        />
-                      </div>
-                      <p style={{ fontSize: '11px', color: 'var(--hub-muted)', marginTop: '5px' }}>
-                        {item.transactionsCount} transaç{item.transactionsCount !== 1 ? 'ões' : 'ão'}
-                      </p>
-                    </Link>
-                  );
-                })}
-              </Card>
-            )}
-
-            {/* Evolução — lista de meses */}
-            {monthlyEvolution.length > 0 && (
-              <Card>
-                <div className="flex items-center justify-between" style={{ marginBottom: '20px' }}>
-                  <p className="font-medium uppercase" style={{ fontSize: '10px', letterSpacing: '0.13em', color: 'var(--hub-subtle)' }}>
-                    Evolução — {monthlyEvolution.length} meses
-                  </p>
-                  <Link
-                    to={withMonthParam('/financeiro/relatorios', selectedMonth)}
-                    style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--hub-accent) 90%, transparent)' }}
-                    className="hover:opacity-80 transition-opacity"
-                  >
-                    Relatório →
-                  </Link>
-                </div>
-                <EvolutionList data={monthlyEvolution} currentMonth={selectedMonth} />
-              </Card>
-            )}
-          </div>
-
-          {/* Atalhos discretos */}
-          <p className="flex flex-wrap" style={{ gap: '20px', marginTop: '28px', fontSize: '11px', color: 'var(--hub-muted)' }}>
-            <Link to={withMonthParam('/financeiro/relatorios', selectedMonth)} className="hover:opacity-80 transition-opacity">
-              ✨ Análise IA
-            </Link>
-            <Link to="/financeiro/importar" className="hover:opacity-80 transition-opacity">
-              Importar
-            </Link>
-            <Link to="/financeiro/categorias" className="hover:opacity-80 transition-opacity">
-              Categorias
-            </Link>
-            <Link to={withReimbursementsParams(selectedMonth)} className="hover:opacity-80 transition-opacity">
-              Reembolsos
-            </Link>
-          </p>
-        </>
-      )}
+          <Card>
+            <p className="font-medium uppercase" style={{ ...sectionLabel, marginBottom: '2px' }}>Atalhos</p>
+            <ShortcutRow to={withMonthParam('/financeiro/gastos/relatorio', selectedMonth)} label="Relatório e análise do mês" />
+            {reimbursementCount > 0 ? (
+              <ShortcutRow to={withReimbursementsParams(selectedMonth)} label={`${reimbursementCount} reembolso${reimbursementCount === 1 ? '' : 's'} pareado${reimbursementCount === 1 ? '' : 's'}`} />
+            ) : null}
+            <ShortcutRow to={withMonthAndCategoryParams('/financeiro/gastos', selectedMonth)} label={`${summary.transactionCount} lançamento${summary.transactionCount === 1 ? '' : 's'} no mês`} />
+            <ShortcutRow to="/financeiro/configurar/importar" label="Importar extrato" last />
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
 
-/** Lista de evolução mensal — substitui o SVG chart na dashboard */
-function EvolutionList({
-  data,
-  currentMonth,
-}: {
-  data: MonthlyEvolutionPoint[];
-  currentMonth: string;
-}) {
-  const lastIdx = data.length - 1;
+function ShortcutRow({ to, label, last = false }: { to: string; label: string; last?: boolean }) {
+  return (
+    <Link
+      to={to}
+      className="flex items-center justify-between text-sm transition-opacity hover:opacity-70"
+      style={{ padding: '10px 0', borderBottom: last ? 'none' : '1px solid var(--hub-border)', color: 'var(--hub-text-body)' }}
+    >
+      <span>{label}</span>
+      <span style={{ color: 'var(--hub-subtle)' }}>→</span>
+    </Link>
+  );
+}
 
+/** Month by month, how much was left — the current month last and in full color. */
+function EvolutionList({ data }: { data: MonthlyEvolutionPoint[] }) {
+  const lastIdx = data.length - 1;
   return (
     <div>
       {data.map((point, i) => {
         const isCurrent = i === lastIdx;
         const hasData = point.transactionCount > 0;
-        const opacity = !hasData ? 0.25 : isCurrent ? 1 : 0.75;
-
         return (
           <div
             key={point.month}
             className="flex items-baseline justify-between"
-            style={{
-              padding: isCurrent ? '9px 0' : '8px 0',
-              borderBottom: i < lastIdx ? '1px solid var(--hub-border)' : undefined,
-              opacity,
-            }}
+            style={{ padding: '8px 0', borderBottom: i < lastIdx ? '1px solid var(--hub-border)' : undefined }}
           >
-            <span
-              style={{
-                fontSize: '12px',
-                color: isCurrent ? 'var(--hub-text)' : 'var(--hub-muted)',
-                fontWeight: isCurrent ? 500 : 400,
-                textTransform: 'capitalize',
-              }}
-            >
+            <span style={{ fontSize: '13px', color: isCurrent ? 'var(--hub-text)' : 'var(--hub-muted)', fontWeight: isCurrent ? 500 : 400 }}>
               {point.label}
             </span>
             <span
               className="tabular-nums"
               style={{
                 fontSize: '13px',
-                letterSpacing: '-0.01em',
-                color: !hasData
-                  ? 'var(--hub-disabled)'
-                  : point.balance >= 0
-                  ? 'var(--hub-positive)'
-                  : 'var(--hub-negative)',
-                opacity: isCurrent ? 1 : 0.72,
+                color: !hasData ? 'var(--hub-disabled)' : point.balance >= 0 ? 'var(--hub-positive)' : 'var(--hub-negative)',
               }}
             >
-              {hasData
-                ? `${point.balance >= 0 ? '+' : ''}${formatCurrency(point.balance)}`
-                : '—'}
+              {hasData ? `${point.balance >= 0 ? '+' : ''}${formatCurrency(point.balance)}` : '—'}
             </span>
           </div>
         );
       })}
     </div>
   );
-}
-
-/** Retorna o label do mês anterior (ex: "maio") */
-function getPrevMonthLabel(monthKey: string): string {
-  const [y, m] = monthKey.split('-').map(Number);
-  const prev = new Date(y, m - 2, 1);
-  return prev.toLocaleString('pt-BR', { month: 'long' });
 }

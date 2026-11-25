@@ -5,10 +5,10 @@ import { subjectService } from '../../college/services/subjectService';
 import { assessmentService } from '../../college/services/assessmentService';
 import { gradeService } from '../../college/services/gradeService';
 import { workoutService } from '../../fitness/services/workoutService';
-import { tafService } from '../../fitness/services/tafService';
 import { fitnessStatisticsService } from '../../fitness/services/fitnessStatisticsService';
 import { routineService } from './routineService';
 import { WEEK_DAY_LABEL, ACTIVITY_LABEL, PLANNABLE_ACTIVITIES, type ActivityType, type SessionType, type WeeklySession } from '../types/routine';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 // ── Helpers de contexto ───────────────────────────────────────────────────────
 
@@ -59,20 +59,6 @@ function subjectGrades() {
   });
 }
 
-function tafContext() {
-  try {
-    const results = tafService.getAllTestResults();
-    if (results.length === 0) return '  (sem dados do TAF ainda)';
-    return results.map((r) => {
-      const best = r.bestValue ?? 0;
-      const min  = r.requirement.minimumValue;
-      const pct  = min > 0 ? Math.round((best / min) * 100) : 0;
-      const status = pct >= 100 ? '✓' : pct >= 90 ? '~' : '✗';
-      return `  - ${r.requirement.workoutType}: ${best} (mínimo ${min}) ${status} ${pct}%`;
-    }).join('\n');
-  } catch { return '  (dados TAF indisponíveis)'; }
-}
-
 function fitnessContext() {
   const daysSince = fitnessStatisticsService.getDaysSinceLastWorkout();
   const thisWeek  = fitnessStatisticsService.getWorkoutsThisWeek();
@@ -113,7 +99,7 @@ export async function generateWeeklyPlan(): Promise<Omit<WeeklySession, 'id'>[]>
   const grades   = subjectGrades();
 
   const today     = new Date();
-  const todayStr  = today.toISOString().split('T')[0];
+  const todayStr  = localDayKey(today);
 
   const routineLines = routine.days.map((d) => {
     if (!d.available || d.blocks.length === 0)
@@ -169,9 +155,6 @@ ${grades.length > 0 ? grades.map((g) => `  - ${g}`).join('\n') : '  (sem discipl
 --- ACADÊMICO: Próximas avaliações ---
 ${examLines}
 
---- FÍSICO: Status TAF (Bombeiros SC) ---
-${tafContext()}
-
 --- FÍSICO: Histórico de treinos ---
 ${fitnessContext()}
 
@@ -180,9 +163,8 @@ REGRAS CRÍTICAS:
 2. type deve ser: "study" (estudo novo), "review" (revisão), "train" (treino físico), "rest" (descanso/recuperação), "admin" (tarefas/finanças/organização), "other" (outros).
 3. ADAPTAÇÃO AUTOMÁTICA: se houver prova em 1-3 dias, substitua treinos por revisão ("review") nessa matéria. Prova amanhã = revisão hoje obrigatória.
 4. Intercale estudo com treino e descanso para evitar burnout.
-5. Inclua sessões de treino físico baseadas no histórico e gaps do TAF.
-6. Priorize déficits do TAF em sessões de treino (ex: se Cooper está abaixo do mínimo, agende corrida).
-7. Nomes dos dias em inglês. startTime no formato "HH:MM".
+5. Inclua sessões de treino físico baseadas no histórico de treinos.
+6. Nomes dos dias em inglês. startTime no formato "HH:MM".
 
 Retorne APENAS array JSON sem markdown:
 [{"day":"monday","startTime":"19:00","type":"study","topic":"...","durationMinutes":60,"priority":"high|medium|low","reason":"..."}]`;

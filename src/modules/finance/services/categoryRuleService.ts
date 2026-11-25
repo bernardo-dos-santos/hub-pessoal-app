@@ -23,6 +23,8 @@ export type CategoryRuleInput = {
 
 export type CategoryRuleMatchInput = {
   description: string;
+  /** When known, a rule only applies in its own direction (see ruleFitsAmount). */
+  amount?: number;
   manualCategory?: boolean;
   category?: string;
   scope?: FinanceScope;
@@ -66,7 +68,26 @@ function hasDuplicateRule(rules: CategoryRule[], normalizedKeyword: string, cate
   );
 }
 
+const INCOMING_KINDS = new Set(['income', 'refund', 'card_payment_received', 'investment_withdrawal']);
+const OUTGOING_KINDS = new Set(['expense', 'card_purchase', 'card_payment', 'investment_contribution']);
+
+/**
+ * A rule learned from money coming in doesn't apply to money going out, and
+ * vice versa. "Pix recebido de Fulano → Renda" also matched "Pix enviado ao
+ * Fulano" (same text after the first " - "), and the transfer out became income.
+ */
+export function ruleFitsAmount(kind: string | undefined, amount: number | undefined) {
+  if (!kind || amount === undefined || !Number.isFinite(amount) || amount === 0) return true;
+  if (INCOMING_KINDS.has(kind)) return amount > 0;
+  if (OUTGOING_KINDS.has(kind)) return amount < 0;
+  return true;
+}
+
 function matchesRuleContext(rule: CategoryRule, input: CategoryRuleMatchInput) {
+  if (!ruleFitsAmount(rule.kind, input.amount)) {
+    return false;
+  }
+
   if (rule.scope && rule.scope !== input.scope) {
     return false;
   }
@@ -263,11 +284,27 @@ export const categoryRuleService = {
     const merchant = extractMerchant(transaction.description).trim();
     const ruleKeyword = keyword?.trim() || merchant || transaction.description;
 
+    // Answering the same store again updates its rule instead of failing with
+    // "já existe" or leaving two rules that disagree (the newest silently won).
+    const normalizedKeyword = assertValidRuleKeyword(ruleKeyword);
+    const existing = readCategoryRules().find((rule) => rule.normalizedKeyword === normalizedKeyword);
+    if (existing) {
+      if (normalizeText(existing.category) === normalizeText(category) && existing.kind === kind && existing.isActive) {
+        return existing;
+      }
+      return this.updateCategoryRule(existing.id, { category, kind, isActive: true }) ?? existing;
+    }
+
     return this.createCategoryRule({
       keyword: ruleKeyword,
       category,
       kind,
     });
+  },
+
+  /** Puts back a list read earlier with listCategoryRules() — the undo of a quick answer. */
+  restoreCategoryRules(rules: CategoryRule[]): void {
+    writeCategoryRules(rules);
   },
 
   clearCategoryRules(): void {

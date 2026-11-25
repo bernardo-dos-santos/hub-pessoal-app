@@ -16,7 +16,14 @@
     </style>
 
 
+    <!-- Launch screen. On Android 12+ the system draws it from the windowSplashScreen*
+         attributes: the Íris's arcs draw themselves (drawable/splash_iris.xml, from
+         scripts/generate-icon.mjs) on the dark ground. Older versions show the ground. -->
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
-        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/olimpo_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_iris</item>
+        <item name="windowSplashScreenAnimationDuration">1000</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+        <item name="android:background">@color/olimpo_bg</item>
     </style>
 </resources>

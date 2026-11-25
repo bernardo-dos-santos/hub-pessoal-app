@@ -66,6 +66,7 @@ function skip(transaction: Transaction, reason: string): RuleApplicationPreviewS
 function findExplicitRule(transaction: Transaction, rules: CategoryRule[], ignoreManualProtection = false) {
   const match = categoryRuleService.findMatchingCategoryRule({
     description: transaction.description,
+    amount: transaction.amount,
     category: transaction.category,
     manualCategory: ignoreManualProtection ? false : transaction.manualCategory,
     scope: transaction.scope,
@@ -237,7 +238,8 @@ export const categoryRuleApplicationService = {
       const updatedTransaction = transactionService.updateTransaction(match.transactionId, {
         category: match.newCategory,
         kind: match.newKind,
-        manualCategory: true,
+        // Applied by a rule: a corrected rule can apply again later.
+        manualCategory: false,
         needsReview: false,
         classificationConfidence: 'high',
         classificationReason:

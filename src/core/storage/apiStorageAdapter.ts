@@ -111,6 +111,20 @@ export async function flushPendingWrites(): Promise<string[]> {
   return [...failedWrites];
 }
 
+/**
+ * Sends again what failed (the value still in memory) and reports what is still
+ * failing. "Import again" was no way out: the lines are already in the cache, so
+ * a new import blocks them all as duplicates.
+ */
+export async function retryFailedWrites(keys: string[] = [...failedWrites]): Promise<string[]> {
+  for (const key of keys) {
+    if (!failedWrites.has(key)) continue;
+    if (cache.has(key)) apiStorageAdapter.setItem(key as StorageKey, cache.get(key));
+    else apiStorageAdapter.removeItem(key as StorageKey);
+  }
+  return flushPendingWrites();
+}
+
 /** Preenche o cache com o snapshot vindo do backend (chamado no bootstrap). */
 export function primeApiCache(snapshot: Record<string, unknown>): void {
   cache.clear();

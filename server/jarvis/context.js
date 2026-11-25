@@ -10,6 +10,15 @@ import { getCachedBriefing } from '../briefing.js';
 import { getLocationContext } from './location.js';
 import { getJarvisConfig } from './config.js';
 import { PROFILE_PATH, readProfile } from './memoryStore.js';
+import {
+  clampStartDay,
+  currentFinancialMonth,
+  isInFinancialMonth,
+  MONTH_START_DAY_KEY,
+} from '../../src/shared/finance/financeMonth.js';
+import { localDayKey } from '../../src/shared/dates/localDay.js';
+import { isRequiredReviewTransaction, summarizeTotals } from '../../src/shared/finance/financeTotals.js';
+import { previousMonthStr } from '../finance-monthly-summary.js';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -22,8 +31,13 @@ export function kv(key) {
   return raw ? safeJson(raw) : null;
 }
 
+/** The current user's financial month start day (financeMonth.js). */
+export function financeMonthStartDay() {
+  return clampStartDay(kv(MONTH_START_DAY_KEY));
+}
+
 export function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  return localDayKey();
 }
 
 export function weekDayStr() {
@@ -69,15 +83,14 @@ export function matchesCategory(budget, category) {
 
 export function buildContext() {
   const today = new Date();
-  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  const startDay = financeMonthStartDay();
+  const currentMonth = currentFinancialMonth(startDay, today);
 
   const transactions = kv('finance.transactions') ?? [];
-  const monthTxs = transactions.filter((t) => t.date?.startsWith(currentMonth));
-  const income = monthTxs.filter((t) => t.kind === 'income').reduce((s, t) => s + (t.amount ?? 0), 0);
-  const expenses = monthTxs
-    .filter((t) => ['expense', 'card_purchase'].includes(t.kind))
-    .reduce((s, t) => s + Math.abs(t.amount ?? 0), 0);
-  const pendingReview = monthTxs.filter((t) => t.needsReview).length;
+  const monthTxs = transactions.filter((t) => isInFinancialMonth(t.date, currentMonth, startDay));
+  // Same totals and review count as the app (financeTotals.js).
+  const { income, expenses } = summarizeTotals(monthTxs);
+  const pendingReview = monthTxs.filter(isRequiredReviewTransaction).length;
 
   const plan = kv('planner.weeklyPlan');
   const todayDaySessions = plan?.sessions?.filter((s) => s.day === todayWeekDay()) ?? [];
@@ -110,8 +123,8 @@ export function buildContext() {
   })();
 
   // Exclusivo (não inclusivo): tira só matéria arquivada da faculdade das
-  // contagens abaixo. O módulo Estudos também usa subjectTag pra tópico de
-  // concurso sem registro em college.subjects — um filtro por inclusão
+  // contagens abaixo. O módulo Estudos guarda subjectTag como texto livre, e há
+  // tags sem registro em college.subjects — um filtro por inclusão
   // apagaria esse conteúdo inteiro do contexto do Jarvis (mesma razão do
   // subjectService.listArchivedSubjectTags() no frontend, duplicado aqui
   // porque o servidor é JS puro e não importa TS do frontend).
@@ -164,14 +177,9 @@ export function buildContext() {
     ? todayRoutine.blocks.map((b) => `${b.start}–${b.end} ${ACTIVITY_LABELS_JS[b.activity ?? 'free'] ?? 'Livre'}`).join(', ')
     : null;
 
-  const examDate = kv('concurso.examDate');
-  const daysUntilExam = examDate
-    ? Math.ceil((new Date(examDate).getTime() - today.getTime()) / 86400000)
-    : null;
-
   // Resumo financeiro do mês anterior
-  const prevMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-  const prevMonth = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  // The financial month before this one — the key the monthly summary is saved under.
+  const prevMonth = previousMonthStr();
   const monthlySummary = kv(`finance.monthly-summary.${prevMonth}`);
 
   const completionCount = plan
@@ -220,10 +228,6 @@ export function buildContext() {
       }
     : null;
 
-  const dismissedAlerts = kv('concurso.dismissedEditalAlerts') ?? [];
-  const editalAlerts = (kv('concurso.editalAlertsCache')?.alerts ?? [])
-    .filter((a) => !dismissedAlerts.includes(a.detectedAt + a.url));
-
   const timeStr = today.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
   // Nome de lugar e "há quanto tempo" viajam separados de propósito: o nome é
@@ -242,7 +246,6 @@ export function buildContext() {
       : locationCtx.minutesAgo < 1 ? 'agora' : `há ${locationCtx.minutesAgo} min`,
     investments: invSummary,
     rpg,
-    editalAlerts,
     todayStr: todayStr(),
     weekDay: weekDayStr(),
     weekOf,
@@ -257,7 +260,6 @@ export function buildContext() {
     upcoming,
     goals: goals.slice(0, 5).map((g) => ({ id: g.id, title: g.title, progress: g.progress ?? 0 })),
     fitness: { daysSinceWorkout, lastType: lastWorkout?.type ?? null },
-    daysUntilExam,
     weekCompletionRate,
     todaySchedule,
     frontendCtx,
@@ -298,20 +300,16 @@ FACULDADE: ${ctx.upcoming.length > 0 ? ctx.upcoming.join('; ') : 'sem provas pr�
 
 METAS ATIVAS: ${ctx.goals.length > 0 ? ctx.goals.map((g) => `"${g.title}" (${g.progress}%)`).join(', ') : 'nenhuma'}
 
-${ctx.daysUntilExam !== null ? `CONCURSO: ${ctx.daysUntilExam} dias para a prova` : ''}
-
-${ctx.monthlySummary ? `RESUMO FINANCEIRO DE ${ctx.prevMonth}: receita R$${ctx.monthlySummary.income.toFixed(0)}, gastos R$${ctx.monthlySummary.totalOutflow.toFixed(0)}, saldo R$${ctx.monthlySummary.balance.toFixed(0)}, poupança ${ctx.monthlySummary.savingsRate.toFixed(1)}%. ${ctx.monthlySummary.diagnosis}` : ''}
+${ctx.monthlySummary ? `RESUMO FINANCEIRO DE ${ctx.prevMonth}: receita R$${ctx.monthlySummary.income.toFixed(0)}, gastos R${(ctx.monthlySummary.expenses ?? 0).toFixed(0)}, saldo R$${ctx.monthlySummary.balance.toFixed(0)}, poupança ${ctx.monthlySummary.savingsRate.toFixed(1)}%. ${ctx.monthlySummary.diagnosis}` : ''}
 
 INVESTIMENTOS: ${ctx.investments.count > 0 ? `${ctx.investments.count} posições, R$${ctx.investments.invested.toFixed(0)} investidos, patrimônio R$${ctx.investments.patrimony.toFixed(0)} (reserva R$${ctx.investments.reserve.toFixed(0)}, carteira R$${ctx.investments.portfolio.toFixed(0)})${ctx.investments.monthlyGoal ? `, meta de aporte R$${ctx.investments.monthlyGoal.toFixed(0)}/mês` : ''}` : 'nenhum registrado ainda'}
 
 ${ctx.rpg ? `RPG DE MESA (personagem dele): ${ctx.rpg.name}${ctx.rpg.campaign ? `, campanha "${ctx.rpg.campaign}"` : ''} — ${ctx.rpg.attributes}` : ''}
 
-${ctx.editalAlerts.length > 0 ? `ALERTAS DE CONCURSO (não vistos — mencione se relevante): ${ctx.editalAlerts.map((a) => `${a.title} (${String(a.detectedAt).slice(0, 10)})`).join('; ')}` : ''}
-
 ${briefing?.text ? `BRIEFING DE HOJE: "${briefing.text}"` : ''}
 
 ${ctx.memoryEnabled ? `MEMÓRIA DE LONGO PRAZO — você tem um diretório de arquivos em /memories, que abre e edita com a ferramenta "memory". Como usar aqui:
-- ${PROFILE_PATH} é o resumo do Senhor e já vem carregado abaixo: mantenha-o curto e atual. É o único arquivo que a verificação automática enxerga, então o que precisa estar sempre à mão vai nele
+- ${PROFILE_PATH} é o resumo do Bernardo e já vem carregado abaixo: mantenha-o curto e atual. É o único arquivo que a verificação automática enxerga, então o que precisa estar sempre à mão vai nele
 - Fato duradouro novo (preferência, hábito, promessa, decisão, contexto pessoal): grave sem alarde, mas sempre respondendo algo. Trivialidade do momento e dado que já tem ferramenta própria (transação, treino, prova, check-in) NÃO vão para a memória
 - Cobre promessas registradas quando fizer sentido, com a data
 - Assunto que rende muito texto (um projeto, uma matéria, um plano) merece arquivo próprio em /memories — o perfil fica para o que é sempre relevante

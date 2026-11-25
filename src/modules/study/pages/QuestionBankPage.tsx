@@ -30,7 +30,7 @@ export function QuestionBankPage() {
         <Eyebrow style={{ marginBottom: '8px' }}>Banco</Eyebrow>
         {subjects.length === 0 ? (
           <p className="py-2 text-sm" style={{ color: 'var(--hub-disabled)' }}>
-            Nenhuma questão ainda. Gere a partir de um material da faculdade ou de um tema de concurso.
+            Nenhuma questão ainda. Gere a partir de um material da faculdade.
           </p>
         ) : (
           subjects.map((tag, i) => (

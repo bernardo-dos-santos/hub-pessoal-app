@@ -7,6 +7,7 @@ import { ALERT_RECENCY_DAYS, alertService, buildSigaaHash } from './alertService
 import { defaultSubjectColors } from '../data/defaultCollegeData';
 import { isSubjectDeleted } from './sigaaTombstones';
 import { type Material } from '../types/material';
+import { localDayKey } from '../../../shared/dates/localDay';
 
 // --- Tipos do arquivo exportado pelo script sigaa-sync.js ---
 
@@ -210,7 +211,7 @@ export function importSigaaData(data: SigaaExport): SigaaImportResult {
       taskService.createTask({
         subjectId: subject!.id,
         title: task.description,
-        dueDate: task.date ?? new Date().toISOString().split('T')[0],
+        dueDate: task.date ?? localDayKey(),
       });
       result.tasks++;
     });

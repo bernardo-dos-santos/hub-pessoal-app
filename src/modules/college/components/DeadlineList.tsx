@@ -57,7 +57,7 @@ export function DeadlineList({ assessments = [], subjects, tasks = [] }: Deadlin
           >
             <div>
               <span
-                className="block text-[10px] font-semibold uppercase tracking-widest"
+                className="block text-[11px] font-semibold uppercase tracking-widest"
                 style={{ color: 'var(--hub-subtle)' }}
               >
                 {item.type}

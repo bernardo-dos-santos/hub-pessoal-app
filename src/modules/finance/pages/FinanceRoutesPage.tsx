@@ -1,7 +1,9 @@
-import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { RedirectPreservingQuery } from '../../../shared/ui';
 import { BudgetsPage } from './BudgetsPage';
 import { CardsPage } from './CardsPage';
 import { CategoriesPage } from './CategoriesPage';
+import { ConfigurePage } from './ConfigurePage';
 import { FinanceDashboardPage } from './FinanceDashboardPage';
 import { ImportPage } from './ImportPage';
 import { InvestmentsPlanningPage } from '../investments/pages/InvestmentsPlanningPage';
@@ -9,39 +11,41 @@ import { ReportsPage } from './ReportsPage';
 import { ReviewPage } from './ReviewPage';
 import { TransactionsPage } from './TransactionsPage';
 import { MonthlySummaryPage } from './MonthlySummaryPage';
-import { withReimbursementsParams } from '../utils/financePeriod';
 
-// Rotas antigas de Faturas/Reembolsos/Análise IA — as páginas foram absorvidas
-// por Cartões/Transações/Relatórios (redução de 12 para 8 abas). Continuam
-// existindo como redirect, não como <Navigate> simples, pra preservar o
-// ?month de links/alertas já emitidos antes desta mudança.
-function RedirectPreservingQuery({ to }: { to: string }) {
-  const location = useLocation();
-  return <Navigate to={{ pathname: to, search: location.search }} replace />;
-}
-
+// Old addresses (tabs that were merged or moved under Gastos/Configurar) stay as
+// redirects that keep the query string — links in pushes, alerts and bookmarks
+// carry ?month / ?category / ?view.
 function RedirectReembolsos() {
-  const [searchParams] = useSearchParams();
-  const month = searchParams.get('month');
-  return <Navigate to={withReimbursementsParams(month ?? '')} replace />;
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  params.set('view', 'reembolsos');
+  return <Navigate to={{ pathname: '/financeiro/gastos', search: `?${params.toString()}` }} replace />;
 }
 
 export function FinanceRoutesPage() {
   return (
     <Routes>
       <Route index element={<FinanceDashboardPage />} />
-      <Route path="transacoes" element={<TransactionsPage />} />
+      <Route path="gastos" element={<TransactionsPage />} />
+      <Route path="gastos/relatorio" element={<ReportsPage />} />
+      <Route path="cartao" element={<CardsPage />} />
       <Route path="revisao" element={<ReviewPage />} />
-      <Route path="categorias" element={<CategoriesPage />} />
-      <Route path="cartoes" element={<CardsPage />} />
-      <Route path="faturas" element={<Navigate to="/financeiro/cartoes" replace />} />
-      <Route path="orcamentos" element={<BudgetsPage />} />
-      <Route path="reembolsos" element={<RedirectReembolsos />} />
       <Route path="investimentos" element={<InvestmentsPlanningPage />} />
-      <Route path="importar" element={<ImportPage />} />
-      <Route path="relatorios" element={<ReportsPage />} />
-      <Route path="analise-ia" element={<RedirectPreservingQuery to="/financeiro/relatorios" />} />
+      <Route path="configurar" element={<ConfigurePage />} />
+      <Route path="configurar/orcamentos" element={<BudgetsPage />} />
+      <Route path="configurar/categorias" element={<CategoriesPage />} />
+      <Route path="configurar/importar" element={<ImportPage />} />
       <Route path="resumo/:yyyyMM" element={<MonthlySummaryPage />} />
+
+      <Route path="transacoes" element={<RedirectPreservingQuery to="/financeiro/gastos" />} />
+      <Route path="reembolsos" element={<RedirectReembolsos />} />
+      <Route path="relatorios" element={<RedirectPreservingQuery to="/financeiro/gastos/relatorio" />} />
+      <Route path="analise-ia" element={<RedirectPreservingQuery to="/financeiro/gastos/relatorio" />} />
+      <Route path="cartoes" element={<RedirectPreservingQuery to="/financeiro/cartao" />} />
+      <Route path="faturas" element={<RedirectPreservingQuery to="/financeiro/cartao" />} />
+      <Route path="orcamentos" element={<RedirectPreservingQuery to="/financeiro/configurar/orcamentos" />} />
+      <Route path="categorias" element={<RedirectPreservingQuery to="/financeiro/configurar/categorias" />} />
+      <Route path="importar" element={<RedirectPreservingQuery to="/financeiro/configurar/importar" />} />
       <Route path="*" element={<Navigate to="/financeiro" replace />} />
     </Routes>
   );

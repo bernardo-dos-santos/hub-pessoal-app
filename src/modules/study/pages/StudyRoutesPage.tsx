@@ -15,18 +15,8 @@ import { StudyTodayPage } from './StudyTodayPage';
 import { ErrorDrillPage } from './ErrorDrillPage';
 import { StudyReaderPage } from './StudyReaderPage';
 import { SubjectStudyPage } from './SubjectStudyPage';
-
-/**
- * Redireciona preservando a query string.
- *
- * `<Navigate to="/x">` descarta os parâmetros, e há link salvo que depende deles
- * — hoje `?tag=`, que pré-seleciona a matéria no `StudySourcePicker`. Perder a
- * query levaria o usuário para a tela certa com a matéria errada.
- */
-function LegacyRedirect({ to }: { to: string }) {
-  const { search } = useLocation();
-  return <Navigate to={`${to}${search}`} replace />;
-}
+import { StudyConfigurePage } from './StudyConfigurePage';
+import { RedirectPreservingQuery } from '../../../shared/ui';
 
 export function StudyRoutesPage() {
   return (
@@ -38,6 +28,7 @@ export function StudyRoutesPage() {
       <Route path="flashcards" element={<DeckListPage />} />
       <Route path="erros" element={<ErrorNotebookPage />} />
       <Route path="simulados" element={<SimuladoSetupPage />} />
+      <Route path="configurar" element={<StudyConfigurePage />} />
 
       {/* Drill-downs — herdam o destaque da aba pai e ganham a seta de voltar */}
       <Route path="disciplina/:tag" element={<SubjectStudyPage />} />
@@ -48,26 +39,26 @@ export function StudyRoutesPage() {
       <Route path="flashcards/gerar" element={<NewFlashcardsPage />} />
       <Route path="flashcards/praticar/:deckId" element={<FlashcardRunPage />} />
       <Route path="erros/drill" element={<ErrorDrillPage />} />
-      <Route path="simulados/historico" element={<LegacyRedirect to="/estudos/simulados" />} />
+      <Route path="simulados/historico" element={<RedirectPreservingQuery to="/estudos/simulados" />} />
       <Route path="simulados/resultado/:resultId" element={<SimuladoResultPage />} />
       <Route path="simulados/:id/executar" element={<SimuladoRunPage />} />
       {/* A sessão guiada virou a prática de questões: eram o mesmo produto com
           dois conjuntos de limites e duas telas de conclusão. A rota fica como
           redirect porque a Home aponta para ela em três lugares. */}
-      <Route path="sessao" element={<LegacyRedirect to="/estudos/questoes/praticar" />} />
+      <Route path="sessao" element={<RedirectPreservingQuery to="/estudos/questoes/praticar" />} />
 
       {/* Rotas antigas. Ficam como redirect porque há link salvo, alerta e
           referência de fora do módulo apontando para elas. */}
-      <Route path="biblioteca" element={<LegacyRedirect to="/estudos" />} />
-      <Route path="progresso" element={<LegacyRedirect to="/estudos" />} />
-      <Route path="plano" element={<LegacyRedirect to="/planner" />} />
-      <Route path="gerar" element={<LegacyRedirect to="/estudos/questoes/gerar" />} />
-      <Route path="caderno" element={<LegacyRedirect to="/estudos/erros" />} />
-      <Route path="drill" element={<LegacyRedirect to="/estudos/erros/drill" />} />
-      <Route path="praticar" element={<LegacyRedirect to="/estudos/flashcards" />} />
+      <Route path="biblioteca" element={<RedirectPreservingQuery to="/estudos" />} />
+      <Route path="progresso" element={<RedirectPreservingQuery to="/estudos" />} />
+      <Route path="plano" element={<RedirectPreservingQuery to="/planner" />} />
+      <Route path="gerar" element={<RedirectPreservingQuery to="/estudos/questoes/gerar" />} />
+      <Route path="caderno" element={<RedirectPreservingQuery to="/estudos/erros" />} />
+      <Route path="drill" element={<RedirectPreservingQuery to="/estudos/erros/drill" />} />
+      <Route path="praticar" element={<RedirectPreservingQuery to="/estudos/flashcards" />} />
       <Route path="praticar/:deckId" element={<LegacyPracticeRedirect />} />
-      <Route path="simulado" element={<LegacyRedirect to="/estudos/simulados" />} />
-      <Route path="historico" element={<LegacyRedirect to="/estudos/simulados" />} />
+      <Route path="simulado" element={<RedirectPreservingQuery to="/estudos/simulados" />} />
+      <Route path="historico" element={<RedirectPreservingQuery to="/estudos/simulados" />} />
       <Route path="simulado/resultado/:resultId" element={<LegacyResultRedirect />} />
       <Route path="simulado/:id/run" element={<LegacyRunRedirect />} />
 

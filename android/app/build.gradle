@@ -7,8 +7,9 @@ android {
         applicationId "com.bernardo.hubpessoal"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Set by scripts/build-apk.js (git commit count) — must grow for the self-update to see a new version.
+        versionCode((project.findProperty('hubVersionCode') ?: '1') as Integer)
+        versionName((project.findProperty('hubVersionName') ?: '1.0') as String)
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

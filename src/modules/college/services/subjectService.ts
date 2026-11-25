@@ -69,8 +69,8 @@ function nextSubjectColor() {
  * Tags (nome + apelidos) das matérias arquivadas/concluídas — usado por quem
  * gera recomendação automática de estudo (planner, Jarvis, dashboard "Hoje")
  * pra não puxar matéria de semestre encerrado. É EXCLUSIVO, não inclusivo:
- * o módulo Estudos também usa `subjectTag` pra tópico de concurso sem nenhum
- * registro aqui (ver o grupo "Concurso" do StudySourcePicker) — um filtro por
+ * o módulo Estudos guarda `subjectTag` como texto livre, e há tags sem nenhum
+ * registro aqui (questões antigas, disciplina renomeada) — um filtro por
  * inclusão ("só tag de matéria ativa") apagaria esse conteúdo inteiro. Só
  * tag que pertence a uma matéria arquivada some; todo o resto passa.
  */
